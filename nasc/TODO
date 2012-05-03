@@ -1,0 +1,68 @@
+Petit :
+
+- sealed sur les case class qu'il faut
+#- remplacer les cg.writer par des trucs propres
+- constant pooling
+#- Fonction vide / block vide
+#- les if sans else (if(c) t => if(c) { t; () } else { () })
+#- enlever les warnings
+- virer les override useless
+#- au typage verifier le nb d'arguments & le type des funcalls
+#- plus de literaux
+#- syntaxic sugar pour tous les Builtins.types.Function.create ...
+#- Type.withAttr?
+
+
+Moyen :
+
+#- reflechir a passer aux arguments readonly par defaut et au choix "ref" ou "copy"
+#- generic (&efficient) tree browsing (find/fold/etc) + l'implementer dans les phase <== moitié fait
+#- Function overloading {
+   - ajouter dans Id un truc genre var possibleSymbols : List[Symbol]
+   - changer var symbol = null en def symbol = possibleSymbols match { List() => null, x::xs => x }
+   - pendant le typage d'un appel de fonction regarder toute la stack du truc de gauche
+}
+- Regarder nocapture/nounwind/noalias
+- peut etre ajouter des phases de debug qui verifient les invariants (e.ty != null post typage etc ...)
+#- getters/setters automatiques
+#- un bon pretty printing (4theLulz => un truc web avec du JS pour afficher des trucs en plus (symboles, types des symboles, etc ...))
+#- bien gerer la mutabilité (et du coup s'occuper de ArgMode.Readonly) {
+ readonly =>  const ref pour les gros type et copy pour les petits
+}
+?- transformer PtrRef & PtrDeref en des Apply() pour rendre les phases plus agnostiques
+- nested aggregates (une fois qu'on a symbol.owner & etc)
+
+
+Gros :
+
+#(infra)- Inference de type
+- Gestion d'erreur parsing
+- Generer du BC
+#?- unifier les types & les symboles mieux (i.e. pour les autres trucs que namedtype)
+#- classes MAIS reflechir bien avant {
+ que des struct et des interfaces (comme go)
+ une classe c'est struct avec typeSymbol = Ref(Struct)
+ chaque struct contient autant de vtable que d'interface qu'elle implemente
+ un ptr vers une interface c'est (*object_ptr, *vtable_ptr)
+ les interface peuvent deriver les unes des autres
+ traits a la place d'interfaces ?
+}
+#- Definition de foncteurs de types, variables de types
+#- closures {
+  nouveau type callable() (qui contient le context)
+  conversion func => callable automatique
+  conversion callable sans context => func
+  verifier que ca compile en un truc rapide (genre map => loop)
+ }
+#- interfacer avec une lib C
+- reflechir a la compil multi fichier & aux modules
+ 
+ 
+Bug :
+
+#- FunDef leak les symboles des arguments dans le scope du dessus
+ => changer FunDef en FunDef { argDef; argDef; ... } (ou trouver mieux, en regle general le systeme de symbole est peut être a proprifier un peu)
+#- les field index d'une structure sont faussé par les fonctions
+#- a + b + c => erreur de parsing || LA GRAMMAIRE EST MOISIE, LE PARSER AUSSI => TOUT REFAIRE !
+#- pas possible dans une classe d'avoir une methode qui renvoie un truc du type de la classe (l'instanciation du foncteur Function demande conreteType pour le cache ...)
+#- certains (tous ?) les nested if/else generent du mauvais IR (test case p9 : isIn)
