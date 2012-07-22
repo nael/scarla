@@ -97,7 +97,7 @@ class PrettyPrinter {
 
   def endPhase() = out ++= "</div><br/>"
 
-  def mustPrint(x: Statement) = x match {
+  def mustPrint(x: Tree) = x match {
     case _: BuiltinFunDef => false
     case _: BuiltinTypeDef => false
     case _ => true
@@ -112,7 +112,7 @@ class PrettyPrinter {
     else printSymbol(s)
   }
 
-  def prettyPrint(x: Statement): Unit = x match {
+  def prettyPrint(x: Tree): Unit = x match {
     case Block(List()) => out ++= bracket("{") + "()" + bracket("}")
     case Block(List(y)) => prettyPrint(y)
     case Block(xs) => {
@@ -212,7 +212,7 @@ class PrettyPrinter {
     case _ => f(l.reduce { (a1, a2) => f(a1); out ++= ", "; a2 })
   }
 
-  def prettyPrintList(l: List[Statement]) = printList(l)(prettyPrint)
+  def prettyPrintList(l: List[Tree]) = printList(l)(prettyPrint)
 
   def prettyPrintArgs(args: List[Definition.Argument]) = printList(args) { arg => printSymbolOr(arg.symbol, arg.name); out ++= " : "; printTypeExpr(arg.typeExpr) }
 

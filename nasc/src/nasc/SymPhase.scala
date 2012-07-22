@@ -4,7 +4,7 @@ class SymPhase extends Phase[CompilationUnit, CompilationUnit] {
 
   def name = "symbols"
 
-  var contextHistory : Map[Statement, Context] = Map()
+  var contextHistory : Map[Tree, Context] = Map()
     
   case class Context(values: Map[String, List[Symbol]], next : Option[Context]) {
     def add(name: String, v: Symbol) = {
@@ -34,10 +34,10 @@ class SymPhase extends Phase[CompilationUnit, CompilationUnit] {
           tApl.symbol = ctx.getFirstType(name)
         }
       }
-    } catch { case _ => throw new RuntimeException("Unknown type : " + e) }
+    } catch { case x => throw new RuntimeException("Unknown type : " + e + "(" + x.getMessage() + ")") }
   }
 
-  def processStmt(ctx: Context, e: Statement): Context = {
+  def processStmt(ctx: Context, e: Tree): Context = {
     // Link symbol to def
     e match {
       case id @ Id(name) => {
@@ -50,10 +50,10 @@ class SymPhase extends Phase[CompilationUnit, CompilationUnit] {
     // Update context
     val newCtx = e match {
       case sd: SymDef => {
-        sd.declareSymbols()
         sd.symbols.foldLeft(ctx) {
-          case (ctx, sym) =>
+          case (ctx, sym) => {
             ctx.add(sym.name, sym)
+          }
         }
       }
       case _ => {

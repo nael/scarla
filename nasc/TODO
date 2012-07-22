@@ -1,12 +1,9 @@
 REF:
 - IdSymbol/TypeSymbol crappy (en profiter pour faire un replaceBy propre)
-- declareSymbols() pas bien
 - la dualité type/typesymbol est naze, faire un dessin
 - virer baretype/concretetype
 
-- Definition.Argument devrait etre un enfant de la definition dans l'ast
-
-
+- renommer Statement en Node/Tree ou un truc
 
 Petit :
 - faire en sorte de generer de l'ir avec le pus de type nommés possible

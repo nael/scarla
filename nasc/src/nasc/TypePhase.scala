@@ -1,22 +1,22 @@
 package nasc
 
 object Typer {
-  def typeStatement(s: Statement) = {
-    typeStmt(s, true)
+  def typeTree(s: Tree) = {
+    doTypeTree(s, true)
   }
 
-  def typed(s: List[Statement]): List[Statement] = {
+  def typed(s: List[Tree]): List[Tree] = {
     s.map { st => typed(st) }
   }
 
-  def typed[T <: Statement](s: T): T = {
-    typeStatement(s)
+  def typed[T <: Tree](s: T): T = {
+    typeTree(s)
     s
   }
 
   def collectAggregateFields(d: AggregateDefinition[_]): List[Types.Aggregate.Element] = {
     val defBody = d.body.duplicate()
-    defBody.children.map(typeStmt(_, false)) // Ensure we know the fields types
+    defBody.children.map(doTypeTree(_, false)) // Ensure we know the fields types
     defBody.children.toList.reverse.foldLeft(List[Types.Aggregate.Element]()) {
       case (fields, vd: ValDefinition) => {
         Types.Aggregate.Field(vd.name, vd.valSymbol) :: fields
@@ -28,24 +28,21 @@ object Typer {
     }
   }
 
-  def typeStmt(stmt: Statement, deep: Boolean): Unit = {
-    if (stmt.typed) return
-    stmt match { // Type def's (and struct, ...) arguments
+  def doTypeTree(tree: Tree, deep: Boolean): Unit = {
+    if (tree.typed) return
+    /*stmt match { // Type def's (and struct, ...) arguments
       case d: Definition => {
-        d.definitionArguments.foreach { arg =>
-          val ty = resolveTypeExpr(arg.typeExpr)
-          if (arg.symbol.ty == null) {
-            arg.symbol.ty = arg.mode match {
-              case Definition.ArgModes.Copy => ty
-              case Definition.ArgModes.Ref => Types.Qual.addAttribute(ty, Types.Attributes.Ref)
-              case Definition.ArgModes.Readonly => Types.Qual.addAttribute(ty, Types.Attributes.Readonly)
-            }
-          }
+        d.arguments.foreach { arg =>
+          
         }
       }
       case _ => ()
+    }*/
+    tree match {
+      case d : Definition => { d.arguments.foreach(typeExpr) } // Make sur we typ'd arguments before typing the def
+      case _ => ()
     }
-    stmt match { // Type a symbol definition
+    tree match { // Type a symbol definition
       case fd: FunctionDefinition => {
         fd.returnType = resolveTypeExpr(fd.retTypeExpr)
         fd.funSymbol.ty = fd.functionType
@@ -64,19 +61,19 @@ object Typer {
 
       case d: StructDefinition => {
         val sFields = collectAggregateFields(d)
-        val mods = if(d.isValue) Types.ClassMods.ValueSet(Types.ClassMods.Val) else Types.ClassMods.ValueSet()
+        val mods = if (d.isValue) Types.ClassMods.ValueSet(Types.ClassMods.Val) else Types.ClassMods.ValueSet()
         d.typeSymbol.definedType = new Types.Struct(d.typeSymbol, d.traits.map(resolveTypeExpr(_).concreteType.asInstanceOf[Types.Trait]), sFields, mods)
-        val argTypes = d.argumentSymbols.map(_.ty)
+        val argTypes = d.arguments.map(_.symbol.ty)
         d.constructorSymbol.ty = Defs.types.Function.instanciate(new Types.Named(d.typeSymbol) :: argTypes)
         d.initSymbol.ty = Defs.types.Function.instanciate(Defs.types.Unit :: argTypes)
         val thisTy = new Types.Named(d.typeSymbol)
-        d.thisSymbol.ty = if(d.isValue) Types.Qual.addAttribute(thisTy, Types.Attributes.Ref) else thisTy
+        d.thisSymbol.ty = if (d.isValue) Types.Qual.addAttribute(thisTy, Types.Attributes.Ref) else thisTy
       }
 
       case _ => ()
     }
-    stmt.children.filter { s => deep || (!s.scoped) }.foreach { st => typeStmt(st, deep) }
-    stmt match {
+    tree.children.filter { s => deep || (!s.scoped) }.foreach { (st => doTypeTree(st, deep)) }
+    tree match {
       case e: Expr => typeExpr(e)
       case _ => ()
     }
@@ -118,6 +115,18 @@ object Typer {
         es match { case List() => Defs.types.Unit case _ => es.last match { case ee: Expr => ee.ty case _ => Defs.types.Unit } }
       }
 
+      case arg : Definition.Argument => {
+        val ty = resolveTypeExpr(arg.typeExpr)
+        if (arg.symbol.ty == null) {
+          arg.symbol.ty = arg.mode match {
+            case Definition.ArgModes.Copy => ty
+            case Definition.ArgModes.Ref => Types.Qual.addAttribute(ty, Types.Attributes.Ref)
+            case Definition.ArgModes.Readonly => Types.Qual.addAttribute(ty, Types.Attributes.Readonly)
+          }
+        }
+        arg.symbol.ty
+      }
+
       case mb @ Select(e, name) => {
         e.ty.memberSymbol(name) match {
           case None => Utils.error("No field named " + name + " in " + e.ty)
@@ -143,8 +152,8 @@ object Typer {
         lv match {
           case id: Id => id.symbol.definition match {
             case ValDefinition(_, _, _, _ /*true*/ ) => () // Had to change this cause of init in struct, TODO do better
-            case fd: FunctionDefinition if fd.argumentSymbols.contains(id.symbol) => ()
-            case _ => throw new RuntimeException("Illegal assignement")
+            case _ : Definition.Argument => ()
+            case d @ _ => Utils.error("Illegal assignement : " + d)
           }
           case PtrDeref(ptr) => {
 
@@ -208,7 +217,7 @@ class TypePhase extends Phase[CompilationUnit, CompilationUnit] {
   def name = "type"
 
   def execute(cu: CompilationUnit): CompilationUnit = {
-    Typer.typeStatement(cu.root)
+    Typer.typeTree(cu.root)
     cu
   }
 

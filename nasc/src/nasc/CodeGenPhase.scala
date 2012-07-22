@@ -27,15 +27,15 @@ class CodeGenPhase extends Phase[CompilationUnit, String] {
     val defs = findDefs(cu.root)
     defs.map(genDef(cg, _))
     cg.beginMain()
-    genStatement(cg, cu.root)
+    genTree(cg, cu.root)
     cg.endMain()
     cg.end()
     os.toString()
   }
 
-  def decideStorage(cg: CodeGenerator, st: Statement): Unit = {
-    st.children.foreach(decideStorage(cg, _))
-    st match { case sd: SymDef => decideSymbolStorage(cg, sd) case _ => () }
+  def decideStorage(cg: CodeGenerator, tree: Tree): Unit = {
+    tree.children.foreach(decideStorage(cg, _))
+    tree match { case sd: SymDef => decideSymbolStorage(cg, sd) case _ => () }
   }
 
   def decideSymbolStorage(cg: CodeGenerator, sd: SymDef): Unit = {
@@ -47,7 +47,9 @@ class CodeGenPhase extends Phase[CompilationUnit, String] {
         case vd: ValDefinition => vd.valSymbol.storage = SymbolStorage.Ptr(cg.freshName(vd.valSymbol.name))
         case fd: FunctionDefinition => {
           fd.funSymbol.storage = SymbolStorage.Raw("@" + fd.funSymbol.uniqueName)
-          fd.args.foreach { arg => arg.symbol.storage = SymbolStorage.Ptr(cg.freshName(arg.symbol.name)) }
+        }
+        case arg: Definition.Argument => {
+          arg.symbol.storage = SymbolStorage.Ptr(cg.freshName(arg.symbol.name))
         }
         case b: BuiltinFunDef => { b.funSymbol.storage = SymbolStorage.None() }
         case sd: StructDefinition => {
@@ -64,11 +66,11 @@ class CodeGenPhase extends Phase[CompilationUnit, String] {
     }
   }
 
-  def findDefs(st: Statement): List[SymDef] = {
-    (st match {
+  def findDefs(tree: Tree): List[SymDef] = {
+    (tree match {
       case sd: SymDef => List(sd)
       case _ => List()
-    }) ++ st.children.map(findDefs).flatten.toList
+    }) ++ tree.children.map(findDefs).flatten.toList
   }
 
   def genDef(cg: CodeGenerator, sd: SymDef) = {
@@ -94,14 +96,14 @@ class CodeGenPhase extends Phase[CompilationUnit, String] {
   }
 
   def genFunDef(cg: CodeGenerator, fd: FunctionDefinition) = {
-    val llvmArgNames = fd.argumentSymbols.map { a => cg.freshName(a.uniqueName) }
+    val llvmArgNames = fd.arguments.map { a => cg.freshName(a.symbol.uniqueName) }
     val argString = llvmArgNames.zip(fd.functionType.argTypes).map { case (arg, ty) => ty.llvmType + " " + arg }
     val funName = fd.funSymbol.storage.asRaw.name
     cg.beginFunction(fd.functionType.retType.llvmType, funName, Utils.repsep(argString))
-    fd.argumentSymbols.zip(fd.functionType.argTypes).zip(llvmArgNames).foreach {
+    fd.arguments.zip(fd.functionType.argTypes).zip(llvmArgNames).foreach {
       case ((arg, argTy), llvmName) =>
-        val vd = ValDefinition(arg.name, null, Some(IRValue(llvmName)), true)
-        vd.valSymbol = arg
+        val vd = ValDefinition(arg.symbol.name, null, Some(IRValue(llvmName)), true)
+        vd.valSymbol = arg.symbol
         genExpr(cg, vd)
     }
     val res = genExpr(cg, fd.body)
@@ -113,8 +115,8 @@ class CodeGenPhase extends Phase[CompilationUnit, String] {
     cg.endFunction()
   }
 
-  def genStatement(cg: CodeGenerator, st: Statement) = {
-    st match {
+  def genTree(cg: CodeGenerator, tree: Tree) = {
+    tree match {
       case _: BuiltinTypeDef => ()
       case _: BuiltinFunDef => ()
       case expr: Expr => genExpr(cg, expr)
@@ -151,7 +153,7 @@ class CodeGenPhase extends Phase[CompilationUnit, String] {
       case IRValue(u) => u
       case Block(List()) => "undef"
       case Block(List(expr: Expr)) => genExpr(cg, expr)
-      case Block(st :: es) => { genStatement(cg, st); genExpr(cg, Block(es)) }
+      case Block(st :: es) => { genTree(cg, st); genExpr(cg, Block(es)) }
       case lit: Literal[_] => genLiteral(cg, lit)
       case vd: ValDefinition => {
         if (vd.valSymbol.ty != Defs.types.Unit) {

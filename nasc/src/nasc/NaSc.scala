@@ -52,7 +52,7 @@ object NaSc {
           i += 1
       }
       println("gg")
-    } else { comp(p9); println("Result:"); println(exec()) }
+    } else { comp(p7); println("Result:"); println(exec()) }
   }
   def comp(p: String) = {
     /*
@@ -61,12 +61,12 @@ object NaSc {
        * p8: basic class & ctor => 41\n14
        * p9: basic class, looping, recursion => 1806\n1806\n1806\n[primes numbers up to 97 in reverse order]\n1\n1061
        */
-    try {
+    
       val comp =
         new ParsePhase() ++
           new SymPhase() ++
           new TypePhase() ++
-          new TraitPhase() ++
+ //         new TraitPhase() ++
           new StructPhase() ++
           new RefPhase() ++
           new CodeGenPhase()
@@ -74,7 +74,7 @@ object NaSc {
       val fw = new FileWriter("test.ir")
       fw.write(code)
       fw.close()
-    } finally { G.pp.toFile("report.html") }
+     G.pp.toFile("report.html") 
 
   }
   val p = """{

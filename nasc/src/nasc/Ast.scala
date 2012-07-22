@@ -8,7 +8,7 @@ object G {
   val pp = new PrettyPrinter()
 }
 
-class CompilationUnit(var root: Statement) {
+class CompilationUnit(var root: Tree) {
   override def toString() = root.toString()
 }
 
@@ -16,34 +16,33 @@ trait AttrCopy {
   def copyAttrs(that: this.type): Unit = {}
 }
 
-trait Statement extends AttrCopy {
-  val uniq = { Expr.UNIQ += 1; Expr.UNIQ } //TODO berk
-  def children: Iterable[Statement]
+trait Tree extends AttrCopy {
+  def children: List[Tree]
 
   def subTypeExprs: Iterable[TypeExpr] = List()
   def scoped = false
   
   def typed = true
 
-  def transform(f: Statement => Statement) =
+  def transform(f: Tree => Tree) =
     new AstTransformer {
-      def transformSymbol(parent: Statement, s: Symbol) = s
-      def transform(x: Statement): Statement = f(x)
+      def transformSymbol(parent: Tree, s: Symbol) = s
+      def transform(x: Tree): Tree = f(x)
     }.applyOn(this)
 
-  def transformSymbols(f: (Statement, Symbol) => Symbol) =
+  def transformSymbols(f: (Tree, Symbol) => Symbol) =
     new AstTransformer {
-      def transformSymbol(parent: Statement, s: Symbol) = f(parent, s)
-      def transform(x: Statement): Statement = x
+      def transformSymbol(parent: Tree, s: Symbol) = f(parent, s)
+      def transform(x: Tree): Tree = x
     }.applyOn(this)
 
   def duplicate() = transform(identity)
 }
 
 trait AstTransformer {
-  def transformSymbol(parent: Statement, sym: Symbol): Symbol
-  def transform(x: Statement): Statement
-  def applyOnSymbols(s: Statement): Unit = s match {
+  def transformSymbol(parent: Tree, sym: Symbol): Symbol
+  def transform(x: Tree): Tree
+  def applyOnSymbols(s: Tree): Unit = s match {
     case _: Block => ()
     case _: If => ()
     case _: While => ()
@@ -80,7 +79,7 @@ trait AstTransformer {
     }
 
   }
-  def applyOn[T <: Statement](x: T): T = {
+  def applyOn[T <: Tree](x: T): T = {
     val xformed = (x match {
       case Block(xs) => (Block(xs.map(applyOn)))
       case ValDefinition(name, te, v, mut) => (ValDefinition(name, te, v.map(applyOn), mut))
@@ -108,7 +107,7 @@ trait AstTransformer {
 
 object Expr { var UNIQ = 0 }
 
-trait Expr extends Statement {
+trait Expr extends Tree {
 
   override def typed = ty != null
   
@@ -123,9 +122,8 @@ trait Expr extends Statement {
 }
 
 
-trait SymDef extends Statement {
+trait SymDef extends Tree {
   def symbols: List[Symbol] = List()
-  def declareSymbols(): Unit
   override def typed = super.typed && symbols.forall(_.typed)
 }
 
@@ -135,31 +133,27 @@ trait TypeSymDef[T <: Type] extends SymDef {
   def definedType : T = typeSymbol.definedType.asInstanceOf[T]
 }
 
-case class BuiltinTypeDef extends Statement with SymDef {
+case class BuiltinTypeDef extends Tree with SymDef {
   def children = List()
   override def toString = "__builtins__(" + Utils.repsep(Defs.types.list.map(_.typeSymbol.toString)) + ")"
-  
-  def declareSymbols() {
-    typeSymbols = Defs.types.list.map { case t => t.typeSymbol }
-  }
+    
   override def symbols = typeSymbols ++ super.symbols
 
-  var typeSymbols: List[TypeSymbol] = List()
+  var typeSymbols: List[TypeSymbol] = Defs.types.list.map { case t => t.typeSymbol }
   override def copyAttrs(e: this.type): Unit = {
     e.typeSymbols = typeSymbols
   }
 }
 
-case class ExternFunDef(name: String, llvmName: String, functionType: Defs.types.Function.Instance, redeclare: Boolean) extends Statement with SymDef {
+case class ExternFunDef(name: String, llvmName: String, functionType: Defs.types.Function.Instance, redeclare: Boolean) extends Tree with SymDef {
   def children = List()
 
-  def declareSymbols() = {
-    funSymbol = new IdSymbol(name, this)
-  }
+  def declareSymbols() = {}
+  
 
   override def symbols = funSymbol :: super.symbols
 
-  var funSymbol: IdSymbol = null
+  var funSymbol: IdSymbol = new IdSymbol(name, this)
   override def copyAttrs(e: this.type): Unit = {
     super.copyAttrs(e)
     e.funSymbol = funSymbol
@@ -167,16 +161,15 @@ case class ExternFunDef(name: String, llvmName: String, functionType: Defs.types
 
 }
 
-case class BuiltinFunDef(fun: BuiltinFunction) extends Statement with SymDef {
+case class BuiltinFunDef(fun: BuiltinFunction) extends Tree with SymDef {
   def children = List()
 
-  def declareSymbols() = {
-    funSymbol = new IdSymbol(fun.name, this)
+  def declareSymbols() = {}
 
-  }
+  
   override def symbols = funSymbol :: super.symbols
 
-  var funSymbol: IdSymbol = null
+  var funSymbol: IdSymbol = new IdSymbol(fun.name, this)
   override def copyAttrs(e: this.type): Unit = {
     super.copyAttrs(e)
     e.funSymbol = funSymbol
@@ -204,7 +197,7 @@ case class TypeApply(name: String, args: List[TypeExpr]) extends TypeExpr {
   override def toString = (if (symbol == null) "?" + name else symbol.toString()) + "[" + Utils.repsep(args.map(_.toString)) + "]"
 }
 
-case class Block(content: List[Statement]) extends Expr {
+case class Block(content: List[Tree]) extends Expr {
   override def toString = "{\n" + Utils.repsep(content.map(_.toString), "\n") + "\n}"
   override def children = content
   override def scoped = true
@@ -240,11 +233,10 @@ case class ValDefinition(name: String, valTypeExpr: TypeExpr, value: Option[Expr
   override def symbols = valSymbol :: super.symbols
   override def subTypeExprs = List(valTypeExpr)
 
-  def declareSymbols() = {
-    valSymbol = new IdSymbol(name, this)
-  }
+  def declareSymbols() = {}
+  
 
-  var valSymbol: IdSymbol = null
+  var valSymbol: IdSymbol = new IdSymbol(name, this)
 
   override def copyAttrs(vd: this.type): Unit = {
     super.copyAttrs(vd)
@@ -288,52 +280,37 @@ object Definition {
     }
   }
 
-  case class Argument(name: String, typeExpr: TypeExpr, mode: ArgModes.Mode) {
-    var parentDef: Definition = null // TODO fugly rework with sym rework
-    var position: Int = -1
-    var symbol: IdSymbol = null
+  case class Argument(name: String, typeExpr: TypeExpr, mode: ArgModes.Mode) extends Expr with SymDef {
+    def children = List()
+    var symbol: IdSymbol = new IdSymbol(name, this)
+    override def symbols = List(symbol)
     override def toString = ArgModes.toString(mode) + " " + Utils.symbolOr(symbol, name + " : " + typeExpr)
+    override def subTypeExprs = List(typeExpr)
   }
 }
 
-trait Definition extends Statement with SymDef {
-  def definitionArguments: Iterable[Definition.Argument]
-  def argumentSymbols = definitionArguments.map(_.symbol).toList 
-  override def symbols = argumentSymbols ++ super.symbols
-  def declareArgumentSymbols() = {
-    definitionArguments.foreach { a => a.symbol = new IdSymbol(a.name, this) }
-  }
-  def registerArgs() = {
-    definitionArguments.zipWithIndex.foreach { case (arg, idx) => arg.parentDef = this; arg.position = idx }
-  }
-  override def copyAttrs(d: this.type) = {
-    d.definitionArguments.zip(definitionArguments).foreach {
-      case (na, oa) =>
-        na.symbol = oa.symbol
-    }
-  }
+trait Definition extends Tree {
+  def arguments: List[Definition.Argument] 
+  def children : List[Tree] = arguments
 }
 
-case class FunctionDefinition(name: String, args: List[Definition.Argument], body: Expr, retTypeExpr: TypeExpr) extends Statement with Definition {
+case class FunctionDefinition(name: String, args: List[Definition.Argument], body: Expr, retTypeExpr: TypeExpr) extends Tree with Definition with SymDef {
 
-  def definitionArguments = args
-  registerArgs()
-
+  def arguments = args
+  
   override def toString = "def " + Utils.symbolOr(funSymbol, name) + "(" + Utils.repsep(args.map { arg => arg.toString() }) + ") : " + (if (returnType != null) returnType else "?" + retTypeExpr) + " = " + body
-  override def children = List(body)
+  override def children = super.children ++ List(body)
   override def symbols = funSymbol :: super.symbols
-
+  
   override def subTypeExprs = retTypeExpr :: args.map(_.typeExpr)
   override def scoped = true
 
-  def declareSymbols() = {
-    declareArgumentSymbols()
-    funSymbol = new IdSymbol(name, this)
-  }
-
-  var funSymbol: IdSymbol = null
+  
+  var funSymbol: IdSymbol = new IdSymbol(name, this)
   var returnType: Type = null
-  def functionType: Defs.types.Function.Instance = Defs.types.Function.create(returnType, definitionArguments.map(_.symbol.ty))
+
+  def functionType: Defs.types.Function.Instance = Defs.types.Function.create(returnType, arguments.map(_.symbol.ty))
+  
   override def copyAttrs(fd: this.type) = {
     super.copyAttrs(fd)
     super[Definition].copyAttrs(fd)
@@ -344,17 +321,15 @@ case class FunctionDefinition(name: String, args: List[Definition.Argument], bod
   override def typed = super.typed && returnType != null
 }
 
-trait AggregateDefinition[T <: Type] extends Statement with TypeSymDef[T] {
+trait AggregateDefinition[T <: Type] extends Tree with TypeSymDef[T] {
 
   def body: Block
   def name: String
 
   override def scoped = true
-
-  def declareSymbols() = {
-    typeSymbol = new TypeSymbol(name, this)
-  }
-
+  
+  typeSymbol = new TypeSymbol(name, this)
+  
   override def copyAttrs(d: this.type) = {
     d.typeSymbol = typeSymbol
   }
@@ -372,36 +347,27 @@ case class TraitDefinition(name: String, body: Block) extends AggregateDefinitio
 
 }
 
-case class StructDefinition(name: String, constructorArguments: List[Definition.Argument], traits: List[TypeExpr], body: Block, isValue : Boolean) extends Statement
+case class StructDefinition(name: String, constructorArguments: List[Definition.Argument], traits: List[TypeExpr], body: Block, isValue : Boolean) extends Tree
 with SymDef with Definition with AggregateDefinition[Types.Struct] {
-  def definitionArguments = constructorArguments
-  registerArgs()
+  def arguments = constructorArguments
 
   override def toString = "struct" + Utils.symbolOr(typeSymbol, name) + (if (traits.isEmpty) "" else " extends (" + Utils.repsep(traits.map(_.toString)) + ")") + " = " + body.toString()
-  def children = List(body)
+  override def children = super.children ++ List(body)
   override def symbols = List(initSymbol, constructorSymbol, thisSymbol) ++ super.symbols
-  override def subTypeExprs = traits ++ definitionArguments.map(_.typeExpr)
+  override def subTypeExprs = traits
+  
 
-  override def declareSymbols() = {
-    super[AggregateDefinition].declareSymbols()
-    declareArgumentSymbols()
-    thisSymbol = new IdSymbol("this", this)
-    constructorSymbol = new IdSymbol(name, this)
-    initSymbol = new IdSymbol("new", this)
-    vtableSymbols = traits.map({ t => t.symbol -> new IdSymbol("_" + t.symbol.uniqueName + "_vtable", this )}).toMap
-  }
-
-  var initSymbol: IdSymbol = null
-  var constructorSymbol: IdSymbol = null
-  var thisSymbol: IdSymbol = null
-  var vtableSymbols: Map[TypeSymbol, IdSymbol]  = null
+  var initSymbol: IdSymbol = new IdSymbol("this", this)
+  var constructorSymbol: IdSymbol = new IdSymbol(name, this)
+  var thisSymbol: IdSymbol = new IdSymbol("new", this)
+  var vtableSymbols: Map[TypeSymbol, IdSymbol]  = traits.map({ t => t.symbol -> new IdSymbol("_" + t.symbol.uniqueName + "_vtable", this )}).toMap
+  
   override def copyAttrs(sd: this.type) = {
     super.copyAttrs(sd)
     super[Definition].copyAttrs(sd)
     super[AggregateDefinition].copyAttrs(sd)
     sd.constructorSymbol = constructorSymbol
     sd.thisSymbol = thisSymbol
-    sd.typeSymbol = typeSymbol
     sd.initSymbol = initSymbol
     sd.vtableSymbols = vtableSymbols
   }

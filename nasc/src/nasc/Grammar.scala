@@ -18,7 +18,7 @@ object Grammar extends RegexParsers {
 
   def qualId = id ~ (("." ~> id)*) ^^ { case i ~ Nil => QualId(List(i)) case i ~ is => QualId(i :: is) }
 
-  def program: Parser[Statement] = expr // TODO maybe not that good
+  def program: Parser[Tree] = expr // TODO maybe not that good
 
   def funTypeExpr : Parser[TypeExpr] = ("(" ~> repsep(typeExpr, ",") <~ ")"/* | (typeExpr ^^ { List(_)})*/) ~ "=>" ~ typeExpr ^^ { case args ~ _ ~ ret => TypeApply("Function", ret :: args)}
   
