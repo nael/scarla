@@ -10,7 +10,7 @@ trait Type {
   def concreteType: ConcreteType
   def memberType(m: String): Option[Type]
   def hasMember(m: String) = memberType(m) != None
-  def memberSymbol(m: String): Option[Symbol]
+  def memberSymbol(m: String): Option[IdSymbol]
   def bareType: BareType
 
   def attributes: Types.Attributes.ValueSet
@@ -73,10 +73,10 @@ object Types {
   object Aggregate {
     trait Element {
       def name: String
-      def symbol: Symbol
+      def symbol: IdSymbol
     }
-    case class Field(override val name: String, override val symbol: Symbol) extends Element
-    case class Function(override val name: String, override val symbol: Symbol) extends Element
+    case class Field(override val name: String, override val symbol: IdSymbol) extends Element
+    case class Function(override val name: String, override val symbol: IdSymbol) extends Element
   }
 
   class Trait(

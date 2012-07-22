@@ -7,5 +7,6 @@ object Utils {
     s.tail.foldLeft(s.head)(_ + sep + _)
   }
   def error(s: String) = throw new RuntimeException(s)
-  def symbolOr(s : Symbol, alt : String) = if(s == null) alt else "[" + s.uniqueName + " : " + (if(s.ty == null) "?" else s.ty) + "]"
+  def symbolOr(s : IdSymbol, alt : String) = if(s == null) alt else "[" + s.uniqueName + " : " + (if(s.ty == null) "?" else s.ty) + "]"
+  def symbolOr(s : TypeSymbol, alt : String) = if(s == null) alt else "[!" + s.uniqueName + "]"
 }

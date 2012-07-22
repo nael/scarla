@@ -1,5 +1,15 @@
-Petit :
+REF:
+- IdSymbol/TypeSymbol crappy (en profiter pour faire un replaceBy propre)
+- declareSymbols() pas bien
+- la dualité type/typesymbol est naze, faire un dessin
+- virer baretype/concretetype
 
+- Definition.Argument devrait etre un enfant de la definition dans l'ast
+
+
+
+Petit :
+- faire en sorte de generer de l'ir avec le pus de type nommés possible
 - sealed sur les case class qu'il faut
 #- remplacer les cg.writer par des trucs propres
 - constant pooling
@@ -11,6 +21,7 @@ Petit :
 #- plus de literaux
 #- syntaxic sugar pour tous les Builtins.types.Function.create ...
 #- Type.withAttr?
+- normaliser les trucs privés ($, __, ?)
 
 
 Moyen :
@@ -31,7 +42,7 @@ Moyen :
 }
 ?- transformer PtrRef & PtrDeref en des Apply() pour rendre les phases plus agnostiques
 - nested aggregates (une fois qu'on a symbol.owner & etc)
-
+- idealement plus un seul instanceof
 
 Gros :
 

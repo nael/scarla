@@ -4,11 +4,23 @@ import java.io.FileWriter
 class PrettyPrinter {
   var out: StringBuilder = null
 
-  def withStyle(style: String)(x: String): String = "<span class=\"" + style + "\">" + x + "</span>"
-  def ident = withStyle("identifier") _
+  def withStyle(style: String, data : Map[String, String] = Map())(x: String): String =
+    "<span class=\"" + style + "\" " + (data.map { case (k,v) => "data-" + k + "=\"" + v + "\" " }).mkString(" ") + "  >" + x + "</span>"
+  def ident(s : String) = withStyle("identifier")(normIdent(s))
+  def symbol(s : IdSymbol) = {
+    var data = Map[String, String]()
+    data ++= Map("uniqueName" -> s.uniqueName)
+    if(s.typed) data ++= Map("type" -> s.ty.toString)
+    withStyle("symbol", data)(s.name)
+  }
   def literal = withStyle("literal") _
   def keyword = withStyle("keyword") _
   def typeName = withStyle("typeName") _
+  def bracket = withStyle("bracket") _
+  def decl = withStyle("decl") _
+  
+  def normIdent(s : String) = s
+  
   def beginBlock() = out ++= "<div class=\"codeBlock\">"
   def endBlock() = out ++= "</div>"
 
@@ -24,24 +36,48 @@ class PrettyPrinter {
 <title>Compilation report</title>
 <script type="text/javascript"
 	src="http://code.jquery.com/jquery-1.7.2.min.js"></script>
+      <link type="text/css" rel="stylesheet" href="jquery.qtip-2.0.0.css" />
+      <script type="text/javascript" src="jquery.qtip-2.0.0.min.js"></script>
 <script type="text/javascript" src="test.js"></script>
 <STYLE TYPE="text/css">
 .codeBlock {
-	padding-left: 1em;
+	padding-left: 1.5em;
 }
 .identifier {
-	color: blue;
-	font-weight: bold;
+	color: black;
+}
+.symbol {
+    color: black;
+    font-weight: bold;
+      text-decoration:underline
+}
+.typeName {
+    color: #88F; //
+}
+.decl {
+    font-weight: bold;      
 }
 .keyword {
-	color: red;
+	color: #500000;
+    font-weight: bold;
+}
+.bracket {
+   color: #800080;   
+}
+.code {
+   background: #F0F0F0;
+      font-family: monospace;
+   display: none;
+}
+.symbolInfo {
+   font-size: 1.1em;      
 }
 </STYLE>
 </head>
 
 <body>"""
   }
-  
+
   def conclude() = {
     out ++= """</body>
 </html>"""
@@ -56,31 +92,46 @@ class PrettyPrinter {
   }
 
   def beginPhase(p: String) = {
-    out ++= "<h3>Phase <strong>" + p + "</strong></h3>"
+    out ++= "<h3><a href='#' onclick='$(\"#" + p + "_code\").toggle(); return false'>[+]</a> <strong>" + p + "</strong></h3><div class='code' id='" + p + "_code'>"
   }
-  
-  def endPhase() = out ++ "<br/>"
+
+  def endPhase() = out ++= "</div><br/>"
+
+  def mustPrint(x: Statement) = x match {
+    case _: BuiltinFunDef => false
+    case _: BuiltinTypeDef => false
+    case _ => true
+  }
+
+  def printSymbol(s: IdSymbol) = {
+    out ++= symbol(s)
+  }
+
+  def printSymbolOr(s: IdSymbol, ss: String) = {
+    if (s == null) out ++= ident(ss)
+    else printSymbol(s)
+  }
 
   def prettyPrint(x: Statement): Unit = x match {
-    case Block(List()) => out ++= "{()}"
+    case Block(List()) => out ++= bracket("{") + "()" + bracket("}")
     case Block(List(y)) => prettyPrint(y)
     case Block(xs) => {
-      out ++= "{<br/>"
+      out ++= bracket("{") + "<br/>"
       beginBlock()
-      xs.foreach { s => prettyPrint(s); out ++= "<br/>" }
+      xs.foreach { s => if (mustPrint(s)) { prettyPrint(s); out ++= "<br/>" } }
       endBlock()
-      out ++= "<br/>}<br/>"
+      out ++= bracket("}")
     }
-    case Id(u) => {
-      out ++= ident(u)
+    case id : Id => {
+      printSymbolOr(id.symbol, id.name)
     }
     case lit: Literal[_] => {
       out ++= literal(lit.value.toString)
     }
-    case ValDefinition(name, typeExpr, valueOpt, mutable) => {
+    case vd @ ValDefinition(name, typeExpr, valueOpt, mutable) => {
       out ++= keyword(if (mutable) "var" else "val")
       out ++= " "
-      out ++= ident(name)
+      printSymbolOr(vd.valSymbol, name)
       out ++= " : "
       printTypeExpr(typeExpr)
       valueOpt.map { value =>
@@ -105,14 +156,65 @@ class PrettyPrinter {
     case Call(f, args) => {
       prettyPrint(f)
       out ++= "("
-      if (!args.isEmpty) args.reduce { (a1, a2) => prettyPrint(a1); out ++= ", "; a2 }
+      prettyPrintList(args)
       out ++= ")"
     }
-    case While(cond, body) => {
-
+    case Select(e, f) => {
+      prettyPrint(e)
+      out ++= "."
+      out ++= ident(f)
     }
-    case _ => ()
+    case ExternFunDef(name, llname, ty, redec) => {
+      out ++= keyword("extern")
+      out ++= " " + name + " : "
+      out ++= ty.toString
+    }
+    case StructDefinition(name, args, traits, body, isVal) => {
+      out ++= keyword(if(isVal) "struct" else "class")
+      out ++= " " + name + " ("
+      prettyPrintArgs(args)
+      out ++= ") "
+      prettyPrint(body)
+    }
+    case fd @ FunctionDefinition(name, args, body, retTe) => {
+      out ++= keyword("def") + " "
+      printSymbolOr(fd.funSymbol, name)
+      out ++= "("
+      prettyPrintArgs(args)
+      out ++= ") : "
+      printTypeExpr(retTe)
+      out ++= " = "
+      prettyPrint(body)
+    }
+    case While(cond, body) => {
+    	out ++= keyword("while") + "("
+    	prettyPrint(cond)
+    	out ++= ") "
+    	prettyPrint(body)
+    }
+    
+    case PtrRef(x) => {
+      out ++= "&"
+      prettyPrint(x)
+    }
+    
+    case PtrDeref(x) => {
+      out ++= "(*"
+      prettyPrint(x)
+      out ++= ")"
+    }
+    
+    case _ => { if (mustPrint(x)) out ++= "[" + x.getClass() + "]" else () }
   }
+
+  def printList[T](l: List[T])(f: T => Unit) = l match {
+    case List() => ()
+    case _ => f(l.reduce { (a1, a2) => f(a1); out ++= ", "; a2 })
+  }
+
+  def prettyPrintList(l: List[Statement]) = printList(l)(prettyPrint)
+
+  def prettyPrintArgs(args: List[Definition.Argument]) = printList(args) { arg => printSymbolOr(arg.symbol, arg.name); out ++= " : "; printTypeExpr(arg.typeExpr) }
 
   def print(s: String) = out ++= s.replace("\n", "<br/>")
 
@@ -122,7 +224,7 @@ class PrettyPrinter {
       case TypeApply(name, args) => {
         out ++= typeName(name)
         out ++= "["
-        args.reduce { (a1, a2) => printTypeExpr(a1); out ++= ", "; a2 }
+        printTypeExpr(args.reduce { (a1, a2) => printTypeExpr(a1); out ++= ", "; a2 })
       }
     }
   }

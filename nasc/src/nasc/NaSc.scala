@@ -4,8 +4,80 @@ import java.io.{ File, FileOutputStream }
 import java.io.FileWriter
 
 object NaSc {
+  def exec() = {
+    val pr = scala.sys.process.stringToProcess("cmd /C " + "do")
+    pr.!!.replace("\r", "") // lol
+  }
   def main(args: Array[String]): Unit = {
-    val p = """{
+    if (args.length > 0) {
+      G.verbose = false
+      val expct = Map(
+        p6 -> "6\n2\n",
+        p7 -> "42\n24\n",
+        p8 -> "41\n14\n",
+        p9 ->
+"""1806
+1806
+1806
+31
+29
+23
+19
+17
+13
+11
+7
+5
+3
+2
+1
+161
+"""
+        )
+      var i = 0
+      expct.foreach {
+        case (p, e) =>
+          comp(p)
+          val u = exec()
+          if (u == e) println("Test " + i + " ok")
+          else {
+            println("Test " + i + " ko : ")
+            println("Expected :")
+            println(e)
+            println("Got")
+            println(u)
+            println("abort")
+            return
+          }
+          i += 1
+      }
+      println("gg")
+    } else { comp(p9); println("Result:"); println(exec()) }
+  }
+  def comp(p: String) = {
+    /*
+       * p6: funptr & ref test => 6\n2
+       * p7: basic struct & ctor => 42\n24
+       * p8: basic class & ctor => 41\n14
+       * p9: basic class, looping, recursion => 1806\n1806\n1806\n[primes numbers up to 97 in reverse order]\n1\n1061
+       */
+    try {
+      val comp =
+        new ParsePhase() ++
+          new SymPhase() ++
+          new TypePhase() ++
+          new TraitPhase() ++
+          new StructPhase() ++
+          new RefPhase() ++
+          new CodeGenPhase()
+      val code = comp.process(p)
+      val fw = new FileWriter("test.ir")
+      fw.write(code)
+      fw.close()
+    } finally { G.pp.toFile("report.html") }
+
+  }
+  val p = """{
 	      def fact(x : Int) : Int = {
 	          val u : Int = "plop";
 	          def tmp(u : Int, y : Int) : Int = x + u * y;
@@ -18,15 +90,15 @@ object NaSc {
 	  	  };
 	      printInt(fact(4))
 	}"""
-    val p2 = """{
+  val p2 = """{
 	      def a(x : Int) : Int = {
 	         def b(y : Int) : Int = x;
 	         b(2)
 	         2
 	      };
-	²²²²      a(2)
+	     a(2)
 	}"""
-    val p3 = """{
+  val p3 = """{
         def fact(n : Int) : Int = {
            if(n == 0) { 1 } else {
               fact(n-1)*n
@@ -34,12 +106,12 @@ object NaSc {
         };
         printInt(fact(8))
 	}"""
-    val p4 = """{
+  val p4 = """{
       struct A { val x : Int = 2; val y : Int = 3 };
       val a : Ref[A] = A();
       printInt(a.x)
   }"""
-    val p5 = """{
+  val p5 = """{
       
       trait E {
         def u() : Int = { 2 }
@@ -51,7 +123,7 @@ object NaSc {
       val a : E
       a.u()
   }"""
-    val p6 = """{
+  val p6 = """{
       def u(k : Int): Unit = {
       	printInt(k + 2)
       }
@@ -66,7 +138,7 @@ object NaSc {
       mod(b)
       b(4)
       }"""
-    val p7 = """{
+  val p7 = """{
     value class A(x : Int) {
       val a1 : Int = 3
       var a2 : Int = x-1
@@ -79,7 +151,7 @@ object NaSc {
     zp.a2 = 0
     printInt(z.p(2))
   }"""
-      val p8 = """{
+  val p8 = """{
      class A(x : Int) {
        val a1 : Int = 3
        var a2 : Int = x-1
@@ -92,7 +164,7 @@ object NaSc {
     zp.a2 = 1
     printInt(z.p(8))
   }"""
-        val p9x = """{
+  val p9x = """{
         class LL(v : Int) {
           val x : Int = v
           var next : LL
@@ -115,7 +187,7 @@ object NaSc {
         }
         printList(ints(5))
   }"""
-          val p9 = """{
+  val p9 = """{
 
 class LL(v : Int) {
           val x : Int = v
@@ -191,31 +263,24 @@ val tot3 : Int = lim*(lim + 1)
 printInt(tot1)
 printInt(tot2)
 printInt(tot3)
-val primes : LL = sieve(99)
+val primes : LL = sieve(30)
 printList(primes)
 val ps : Int = fsum(primes)
 printInt(ps)
   }"""
-      /*
-       * p6: funptr & ref test => 6\n2
-       * p7: basic struct & ctor => 42\n24
-       * p8: basic class & ctor => 41\n14
-       * p9: basic class, looping, recursion => 1806\n1806\n1806\n[primes numbers up to 97 in reverse order]\n1\n1061
-       */
-    try {
-      val comp =
-        new ParsePhase() ++
-          new SymPhase() ++
-          new TypePhase() ++
-          new TraitPhase() ++
-          new StructPhase() ++
-          new RefPhase() ++
-          new CodeGenPhase()
-      val code = comp.process(p9)
-      val fw = new FileWriter("test.ir")
-      fw.write(code)
-      fw.close()
-    } finally { G.pp.toFile("report.html") }
+  val p10 = """{
+      trait E {
+        def wazza() : Int = { 8 }
+        def wdd(xz : Int) :Int = wazza()+1      
+      }
+      class A(xx : Int) extends E {
+        var x : Int = xx
+        def wazza():Int = x
+        def u():Int = wazza()  
+      }
+      val b : E
+      val a : A = A(45)
+      printInt(a.u())
+  }"""
 
-  }
 }

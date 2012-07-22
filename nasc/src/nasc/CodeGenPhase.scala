@@ -54,8 +54,7 @@ class CodeGenPhase extends Phase[CompilationUnit, String] {
           var fieldIdx = 0
           sd.body.children.foreach {
             case vd: ValDefinition => {
-              val idx = sd.typeSymbol.definedType.asInstanceOf[Types.Struct].fields.findIndexOf(_.name == vd.name)
-              println("Storage IDX : " + sd.typeSymbol.definedType.asInstanceOf[Types.Struct].fields + " => " + idx + " (" + vd.name + ")")
+              val idx = sd.definedType.fields.filter(_.isInstanceOf[Types.Aggregate.Field]).findIndexOf(_.name == vd.name)
               vd.valSymbol.storage = SymbolStorage.Index(idx)
             }
             case _ => ()
@@ -95,7 +94,6 @@ class CodeGenPhase extends Phase[CompilationUnit, String] {
   }
 
   def genFunDef(cg: CodeGenerator, fd: FunctionDefinition) = {
-    println("CG " + fd)
     val llvmArgNames = fd.argumentSymbols.map { a => cg.freshName(a.uniqueName) }
     val argString = llvmArgNames.zip(fd.functionType.argTypes).map { case (arg, ty) => ty.llvmType + " " + arg }
     val funName = fd.funSymbol.storage.asRaw.name
@@ -133,7 +131,6 @@ class CodeGenPhase extends Phase[CompilationUnit, String] {
       genExpr(cg, ptr)
     }
     case ma @ Select(e, ptr) => {
-      println("CG SelectL " + ma.fieldSymbol)
 
       val res = cg.freshName()
       val structTy = e.ty.bareType.concreteType.asInstanceOf[Types.Struct]
@@ -173,12 +170,11 @@ class CodeGenPhase extends Phase[CompilationUnit, String] {
 
       case mb @ Select(e, name) => {
         val res = cg.freshName()
-        println("CG Select " + mb)
         mb.fieldSymbol.storage match {
           case SymbolStorage.Raw(x) => x
           case SymbolStorage.Index(fieldIndex) => {
             val structTy = e.ty.bareType.concreteType.asInstanceOf[Types.Struct]
-            structTy.fields(fieldIndex) match {
+            structTy.fields.filter(_.isInstanceOf[Types.Aggregate.Field])(fieldIndex) match {
               case f: Types.Aggregate.Field => {
                 e match {
                   case lv: LValue => { // This is to avoid loading an entire struct just to get one field if it is in fact a pointer
@@ -199,7 +195,7 @@ class CodeGenPhase extends Phase[CompilationUnit, String] {
                 }
               }
               case f: Types.Aggregate.Function => {
-                Utils.error("Cannot (yet) access struct func ptr")
+                Utils.error("Cannot (yet) access struct func ptr : " + mb)
               }
             }
           }

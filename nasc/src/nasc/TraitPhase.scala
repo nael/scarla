@@ -5,12 +5,12 @@ class TraitPhase extends Phase[CompilationUnit, CompilationUnit] {
   def name = "trait"
 
   def execute(cu: CompilationUnit): CompilationUnit = {
-    cu.root = cu.root.transform(insertTraitMembers)
-    cu.root = cu.root.transform(rerouteCalls)
-    cu.root = cu.root.transform(initVtable)
+    //cu.root = cu.root.transform(insertTraitMembers)
+    //cu.root = cu.root.transform(rerouteCalls)
+    //cu.root = cu.root.transform(initVtable)
     cu.root = cu.root.transform(insertVtable)
-    cu.root = cu.root.transform(virtualCalls)
-    cu.root = cu.root.transformSymbols { (_, s) => virtualSymbolTranslation.getOrElse(s, s)}
+    //cu.root = cu.root.transform(virtualCalls)
+    //cu.root = cu.root.transformSymbols { (_, s) => virtualSymbolTranslation.getOrElse(s, s) }
     cu
   }
 
@@ -42,7 +42,7 @@ class TraitPhase extends Phase[CompilationUnit, CompilationUnit] {
     case _ => st
   }
 
-  var virtualSymbolTranslation: Map[Symbol, Symbol] = Map()
+  var virtualSymbolTranslation: Map[Symbol, IdSymbol] = Map()
 
   def virtualCalls(s: Statement): Statement = s match {
     case c @ Call(sel @ Select(e, name), args) if virtualSymbolTranslation.contains(sel.fieldSymbol) => {
@@ -74,12 +74,24 @@ class TraitPhase extends Phase[CompilationUnit, CompilationUnit] {
       val vtableDef = StructDefinition(td.name + "__vtable", List(), List(), vtableBody, true)
       vtableDef.declareSymbols()
       Typer.typeStatement(vtableDef)
-      vtableDef
+
+      val vd1 = ValDefinition("ptr", TypeId.fromSymbol(Defs.types.Ptr.create(Defs.types.Byte).typeSymbol), None, true)
+      vd1.declareSymbols()
+      val vd2 = ValDefinition("vt", TypeId.fromSymbol(Defs.types.Ptr.create(vtableDef.typeSymbol.definedType).typeSymbol), None, true)
+      vd2.declareSymbols()
+      val structBody = Block(List(
+        vd1,
+        vd2))
+      val structDef = StructDefinition(td.name, List(), List(), structBody, true)
+      structDef.declareSymbols()
+      val defs = Typer.typed(Block(List(structDef, vtableDef)))
+      td.typeSymbol.replaceBy(structDef.typeSymbol)
+      defs
     }
     case _ => s
   }
 
-  var symbolTranslation: Map[TypeSymbol, Map[Symbol, Symbol]] = Map()
+  var symbolTranslation: Map[TypeSymbol, Map[Symbol, IdSymbol]] = Map()
 
   def rerouteCalls(s: Statement): Statement = s match {
     case sel @ Select(expr, _) => {
@@ -96,12 +108,12 @@ class TraitPhase extends Phase[CompilationUnit, CompilationUnit] {
 
   def insertTraitMembers(s: Statement): Statement = s match {
     case sd: StructDefinition => {
-      var symTrans = Map[Symbol, Symbol]()
+      var symTrans = Map[Symbol, IdSymbol]()
       val processedStruct = sd.traits.foldLeft(sd) {
         case (sd, t) =>
           t.symbol.definition match {
             case td: TraitDefinition => {
-              val traitType = td.typeSymbol.definedType.asInstanceOf[Types.Trait]
+              val traitType = td.definedType
               val ctd = td.body.duplicate().transformSymbols { (st, sym) =>
                 if (symTrans.contains(sym)) symTrans(sym)
                 else {
@@ -115,7 +127,6 @@ class TraitPhase extends Phase[CompilationUnit, CompilationUnit] {
                     case None => sym
                   }
                 }
-
               }
 
               val newStruct = sd.copy(body = Block(ctd.children.toList ++ sd.body.content))
@@ -127,9 +138,10 @@ class TraitPhase extends Phase[CompilationUnit, CompilationUnit] {
           }
       }
         .transformSymbols { (st, sym) => symTrans.getOrElse(sym, sym) }
-      println("End ST : " + symTrans)
       symbolTranslation += sd.typeSymbol -> symTrans
-      processedStruct
+      processedStruct.asInstanceOf[StructDefinition].typeSymbol.definedType = null
+      val x = Typer.typed(processedStruct)
+      x
     }
     case _ => s
   }

@@ -14,7 +14,7 @@ object Typer {
     s
   }
 
-  def collectAggregateFields(d: AggregateDefinition): List[Types.Aggregate.Element] = {
+  def collectAggregateFields(d: AggregateDefinition[_]): List[Types.Aggregate.Element] = {
     val defBody = d.body.duplicate()
     defBody.children.map(typeStmt(_, false)) // Ensure we know the fields types
     defBody.children.toList.reverse.foldLeft(List[Types.Aggregate.Element]()) {
@@ -38,7 +38,7 @@ object Typer {
             arg.symbol.ty = arg.mode match {
               case Definition.ArgModes.Copy => ty
               case Definition.ArgModes.Ref => Types.Qual.addAttribute(ty, Types.Attributes.Ref)
-              case Definition.ArgModes.Readonly => { Types.Qual.addAttribute(ty, Types.Attributes.Readonly) }
+              case Definition.ArgModes.Readonly => Types.Qual.addAttribute(ty, Types.Attributes.Readonly)
             }
           }
         }
@@ -49,7 +49,6 @@ object Typer {
       case fd: FunctionDefinition => {
         fd.returnType = resolveTypeExpr(fd.retTypeExpr)
         fd.funSymbol.ty = fd.functionType
-        println("FunDef " + fd.name + " => " + fd.body.typed)
       }
       case d: BuiltinFunDef => {
         d.funSymbol.ty = d.fun.functionType
@@ -120,7 +119,7 @@ object Typer {
       }
 
       case mb @ Select(e, name) => {
-        e.ty.concreteType.memberSymbol(name) match {
+        e.ty.memberSymbol(name) match {
           case None => Utils.error("No field named " + name + " in " + e.ty)
           case Some(sym) => {
             mb.fieldSymbol = sym

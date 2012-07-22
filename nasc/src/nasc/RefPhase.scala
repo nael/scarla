@@ -12,7 +12,7 @@ class RefPhase extends Phase[CompilationUnit, CompilationUnit] {
   }
 
   def removeRefTypes(st: Statement): Statement = st match {
-    case e: Expr => { println("E " + e); e.ty = Types.Qual.removeAttribute(e.ty, Types.Attributes.Ref); e }
+    case e: Expr => { e.ty = Types.Qual.removeAttribute(e.ty, Types.Attributes.Ref); e }
     case _ => st
   }
 

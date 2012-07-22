@@ -4,7 +4,7 @@ import java.io.ByteArrayOutputStream
 import java.io.PrintWriter
 
 object G {
-
+  var verbose = true
   val pp = new PrettyPrinter()
 }
 
@@ -73,10 +73,10 @@ trait AstTransformer {
       d.typeSymbol = transformSymbol(d, d.typeSymbol).asInstanceOf[TypeSymbol]
     }
     case sel: Select => {
-      sel.fieldSymbol = transformSymbol(sel, sel.fieldSymbol)
+      sel.fieldSymbol = transformSymbol(sel, sel.fieldSymbol).asInstanceOf[IdSymbol]
     }
     case id: Id => {
-      id.symbol = transformSymbol(id, id.symbol)
+      id.symbol = transformSymbol(id, id.symbol).asInstanceOf[IdSymbol]
     }
 
   }
@@ -122,10 +122,17 @@ trait Expr extends Statement {
   }
 }
 
+
 trait SymDef extends Statement {
-  def symbols: Iterable[Symbol]
+  def symbols: List[Symbol] = List()
   def declareSymbols(): Unit
   override def typed = super.typed && symbols.forall(_.typed)
+}
+
+trait TypeSymDef[T <: Type] extends SymDef {
+  var typeSymbol : TypeSymbol = null
+  override def symbols = typeSymbol :: super.symbols
+  def definedType : T = typeSymbol.definedType.asInstanceOf[T]
 }
 
 case class BuiltinTypeDef extends Statement with SymDef {
@@ -135,7 +142,7 @@ case class BuiltinTypeDef extends Statement with SymDef {
   def declareSymbols() {
     typeSymbols = Defs.types.list.map { case t => t.typeSymbol }
   }
-  def symbols = typeSymbols
+  override def symbols = typeSymbols ++ super.symbols
 
   var typeSymbols: List[TypeSymbol] = List()
   override def copyAttrs(e: this.type): Unit = {
@@ -150,7 +157,7 @@ case class ExternFunDef(name: String, llvmName: String, functionType: Defs.types
     funSymbol = new IdSymbol(name, this)
   }
 
-  def symbols = List(funSymbol)
+  override def symbols = funSymbol :: super.symbols
 
   var funSymbol: IdSymbol = null
   override def copyAttrs(e: this.type): Unit = {
@@ -167,7 +174,7 @@ case class BuiltinFunDef(fun: BuiltinFunction) extends Statement with SymDef {
     funSymbol = new IdSymbol(fun.name, this)
 
   }
-  def symbols = List(funSymbol)
+  override def symbols = funSymbol :: super.symbols
 
   var funSymbol: IdSymbol = null
   override def copyAttrs(e: this.type): Unit = {
@@ -230,7 +237,7 @@ trait LValue extends Expr
 case class ValDefinition(name: String, valTypeExpr: TypeExpr, value: Option[Expr], mutable: Boolean) extends Expr with SymDef {
   override def toString = "val " + Utils.symbolOr(valSymbol, "?" + name + " : " + valTypeExpr) + (value match { case Some(v) => " = " + v.toString case _ => "" })
   override def children = value match { case Some(x) => List(x) case None => List() }
-  def symbols = List(valSymbol)
+  override def symbols = valSymbol :: super.symbols
   override def subTypeExprs = List(valTypeExpr)
 
   def declareSymbols() = {
@@ -291,7 +298,8 @@ object Definition {
 
 trait Definition extends Statement with SymDef {
   def definitionArguments: Iterable[Definition.Argument]
-  def argumentSymbols = definitionArguments.map(_.symbol).toList
+  def argumentSymbols = definitionArguments.map(_.symbol).toList 
+  override def symbols = argumentSymbols ++ super.symbols
   def declareArgumentSymbols() = {
     definitionArguments.foreach { a => a.symbol = new IdSymbol(a.name, this) }
   }
@@ -313,7 +321,7 @@ case class FunctionDefinition(name: String, args: List[Definition.Argument], bod
 
   override def toString = "def " + Utils.symbolOr(funSymbol, name) + "(" + Utils.repsep(args.map { arg => arg.toString() }) + ") : " + (if (returnType != null) returnType else "?" + retTypeExpr) + " = " + body
   override def children = List(body)
-  def symbols = funSymbol :: argumentSymbols
+  override def symbols = funSymbol :: super.symbols
 
   override def subTypeExprs = retTypeExpr :: args.map(_.typeExpr)
   override def scoped = true
@@ -336,7 +344,7 @@ case class FunctionDefinition(name: String, args: List[Definition.Argument], bod
   override def typed = super.typed && returnType != null
 }
 
-trait AggregateDefinition extends Statement with SymDef {
+trait AggregateDefinition[T <: Type] extends Statement with TypeSymDef[T] {
 
   def body: Block
   def name: String
@@ -347,18 +355,15 @@ trait AggregateDefinition extends Statement with SymDef {
     typeSymbol = new TypeSymbol(name, this)
   }
 
-  var typeSymbol: TypeSymbol = null
-
   override def copyAttrs(d: this.type) = {
     d.typeSymbol = typeSymbol
   }
 
 }
 
-case class TraitDefinition(name: String, body: Block) extends AggregateDefinition {
+case class TraitDefinition(name: String, body: Block) extends AggregateDefinition[Types.Trait] {
 
   override def toString = "trait " + Utils.symbolOr(typeSymbol, "?" + name) + " = " + body.toString()
-  def symbols = List(typeSymbol)
   def children = List(body)
 
   /*def copyAttrs(d: this.type) = {
@@ -367,13 +372,14 @@ case class TraitDefinition(name: String, body: Block) extends AggregateDefinitio
 
 }
 
-case class StructDefinition(name: String, constructorArguments: List[Definition.Argument], traits: List[TypeExpr], body: Block, isValue : Boolean) extends Statement with SymDef with Definition with AggregateDefinition {
+case class StructDefinition(name: String, constructorArguments: List[Definition.Argument], traits: List[TypeExpr], body: Block, isValue : Boolean) extends Statement
+with SymDef with Definition with AggregateDefinition[Types.Struct] {
   def definitionArguments = constructorArguments
   registerArgs()
 
   override def toString = "struct" + Utils.symbolOr(typeSymbol, name) + (if (traits.isEmpty) "" else " extends (" + Utils.repsep(traits.map(_.toString)) + ")") + " = " + body.toString()
   def children = List(body)
-  def symbols = initSymbol :: typeSymbol :: constructorSymbol :: thisSymbol :: argumentSymbols
+  override def symbols = List(initSymbol, constructorSymbol, thisSymbol) ++ super.symbols
   override def subTypeExprs = traits ++ definitionArguments.map(_.typeExpr)
 
   override def declareSymbols() = {
@@ -381,7 +387,7 @@ case class StructDefinition(name: String, constructorArguments: List[Definition.
     declareArgumentSymbols()
     thisSymbol = new IdSymbol("this", this)
     constructorSymbol = new IdSymbol(name, this)
-    initSymbol = new IdSymbol("$init", this)
+    initSymbol = new IdSymbol("new", this)
     vtableSymbols = traits.map({ t => t.symbol -> new IdSymbol("_" + t.symbol.uniqueName + "_vtable", this )}).toMap
   }
 
@@ -407,6 +413,7 @@ case class QualId(ids: List[String]) extends Expr {
 
 case class Call(f: Expr, args: List[Expr]) extends Expr {
   override def toString = {
+    
     val sargs = args.map(_.toString)
     f.toString() + "(" + Utils.repsep(sargs) + ") : " + ty
   }
@@ -428,7 +435,7 @@ case class Select(o: Expr, name: String) extends LValue {
   
   override def typed = super.typed && fieldSymbol != null
   
-  var fieldSymbol: Symbol = null
+  var fieldSymbol: IdSymbol = null
 
   override def copyAttrs(ma: this.type): Unit = {
     super.copyAttrs(ma)
@@ -437,7 +444,7 @@ case class Select(o: Expr, name: String) extends LValue {
 }
 
 object Id {
-  def fromSymbol(s: Symbol): Id = {
+  def fromSymbol(s: IdSymbol): Id = {
     val id = Id(s.uniqueName)
     id.symbol = s
     id.ty = s.ty
@@ -450,7 +457,7 @@ case class Id(name: String) extends LValue {
 
   override def children = List()
 
-  var symbol: Symbol = null
+  var symbol: IdSymbol = null
 
   override def copyAttrs(id: this.type): Unit = {
     super.copyAttrs(id)

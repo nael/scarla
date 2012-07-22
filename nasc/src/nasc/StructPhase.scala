@@ -5,9 +5,7 @@ class StructPhase extends Phase[CompilationUnit, CompilationUnit] {
   var defs: List[StructDefinition] = List()
   def execute(cu: CompilationUnit): CompilationUnit = {
     cu.root = cu.root.transform(addInit)
-    println("1__" + cu.root)
     cu.root = cu.root.transform(addCtor)
-    println("2__" + cu.root)
     cu.root = cu.root.transform(transformMethods)
 
     cu.root = cu.root.transform(transformMethodCalls)
@@ -28,7 +26,6 @@ class StructPhase extends Phase[CompilationUnit, CompilationUnit] {
       e.ty.bareType.concreteType match {
         case structType: Types.Struct => {
           val wrap = (structType.symbolMember(id.symbol).exists(_.isInstanceOf[Types.Aggregate.Function])) || id.symbol == structType.initSymbol //TODO prettier
-          println("Call[" + wrap + "] : " + call)
           if (wrap) {
             val newCall = Call(id, e :: args)
             Typer.typed(newCall)
@@ -117,7 +114,7 @@ class StructPhase extends Phase[CompilationUnit, CompilationUnit] {
   }
 
   def isSymbolToBeWrapped(sd: StructDefinition, s: Symbol) = {
-    (s == sd.constructorSymbol || s == sd.initSymbol || sd.typeSymbol.definedType.asInstanceOf[Types.Struct].symbolMember(s) != None)
+    (s == sd.constructorSymbol || s == sd.initSymbol || sd.definedType.symbolMember(s) != None)
   }
 
   def addParam(sd: StructDefinition, st: Statement): Statement = st match {
@@ -126,16 +123,17 @@ class StructPhase extends Phase[CompilationUnit, CompilationUnit] {
       val newFd = FunctionDefinition(fd.name, thisArg :: fd.args, fd.body, fd.retTypeExpr)
       thisArg.symbol = sd.thisSymbol
       newFd.funSymbol = fd.funSymbol
-      println("Funbody : " + fd.body.typed + " = " + fd.name)
       Typer.typed(newFd)
     }
-    case id: Id if isSymbolToBeWrapped(sd, id.symbol) => {
+    case id: Id => {
+      if(isSymbolToBeWrapped(sd, id.symbol)) {
       val thisId = Id("this")
       thisId.symbol = sd.thisSymbol
       val ma = Select(thisId, id.name)
       ma.fieldSymbol = id.symbol
       Typer.typeStatement(ma)
       ma
+      } else id
     }
     case _ => st
   }
