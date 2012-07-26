@@ -105,7 +105,6 @@ trait AstTransformer {
   }
 }
 
-object Expr { var UNIQ = 0 }
 
 trait Expr extends Tree {
 

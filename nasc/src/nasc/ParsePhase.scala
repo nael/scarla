@@ -1,10 +1,10 @@
 package nasc
 
-class ParsePhase extends Phase[String, CompilationUnit] {
+class ParsePhase extends Phase[String, ast.syntax.Tree] {
   def name = "parse"
-  def execute(source: String) = new CompilationUnit(Block(
-    Defs.builtinTypeDef ::
+  def execute(source: String) = ast.syntax.t.Block(
+    /*Defs.builtinTypeDef ::
       Defs.builtinFunDefs ++
-      Defs.externFunDefs ++
-      Grammar.parseAll(Grammar.program, source).get.children))
+      Defs.externFunDefs ++*/
+      Grammar.parseAll(Grammar.program, source).get.children)
 }

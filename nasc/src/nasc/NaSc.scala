@@ -8,7 +8,7 @@ object NaSc {
     val pr = scala.sys.process.stringToProcess("cmd /C " + "do")
     pr.!!.replace("\r", "") // lol
   }
-  def main(args: Array[String]): Unit = {
+  def main2(args: Array[String]): Unit = {
     if (args.length > 0) {
       G.verbose = false
       val expct = Map(
@@ -54,27 +54,35 @@ object NaSc {
       println("gg")
     } else { comp(p7); println("Result:"); println(exec()) }
   }
+
+  def main(args: Array[String]): Unit = {
+    val pipeline = new ParsePhase() ++ new SymPhase()
+    val res = pipeline.process(p0)
+    println("========== res : ")
+    println(res)
+  }
+  val p0 = """{val a: Int = 1; a(a,a)}"""
   def comp(p: String) = {
     /*
        * p6: funptr & ref test => 6\n2
        * p7: basic struct & ctor => 42\n24
        * p8: basic class & ctor => 41\n14
-       * p9: basic class, looping, recursion => 1806\n1806\n1806\n[primes numbers up to 97 in reverse order]\n1\n1061
+       * p9: basic class, looping, recursion => 1806\n1806\n1806\n[primes numbers up to k in reverse order]\n1\n1061
        */
     
-      val comp =
+  /*    val comp =
         new ParsePhase() ++
           new SymPhase() ++
           new TypePhase() ++
  //         new TraitPhase() ++
-          new StructPhase() ++
+ //         new StructPhase() ++
           new RefPhase() ++
           new CodeGenPhase()
       val code = comp.process(p)
       val fw = new FileWriter("test.ir")
       fw.write(code)
       fw.close()
-     G.pp.toFile("report.html") 
+     G.pp.toFile("report.html")*/ 
 
   }
   val p = """{

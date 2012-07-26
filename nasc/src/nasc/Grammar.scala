@@ -3,6 +3,10 @@ package nasc;
 import scala.util.parsing.combinator._
 
 object Grammar extends RegexParsers {
+
+  //import ast.generic.t._
+  import ast.syntax._
+  
   val id = """[a-zA-Z]([a-zA-Z0-9_])*"""r
   val integerLiteral = """[0-9]+"""r
   val booleanLiteral = """true|false"""
@@ -10,12 +14,66 @@ object Grammar extends RegexParsers {
 
   override protected val whiteSpace = """( |\t)+""".r
 
-  def literal : Parser[Literal[_]]= (
-    (("-".r?) ~ integerLiteral) ^^ { case Some(_) ~ d => Literals.Integer(-Integer.parseInt(d)) case None ~ d => Literals.Integer(Integer.parseInt(d)) }
-    | (""""[^"]*""""r) ^^ { s => Literals.String(s.slice(1, s.length() - 1)) }
-    | ("true"r) ^^ { _ => Literals.Boolean(true) }
-    | ("false"r) ^^ { _ => Literals.Boolean(false) })
+    def program: Parser[Tree] = expr // TODO maybe not that good
+    
+      def funTypeExpr : Parser[TypeExpr] = ("(" ~> repsep(typeExpr, ",") <~ ")"/* | (typeExpr ^^ { List(_)})*/) ~ "=>" ~ typeExpr ^^ { case args ~ _ ~ ret => TypeApply("Function", ret :: args)}
+    def optValue: Parser[Option[Tree]] = (("=" ~ expr)?) ^^ { u => u.map { case _ ~ e => e } }
 
+  def typeExpr: Parser[TypeExpr] = (
+    id ~ "[" ~ repsep(typeExpr, ",") ~ "]" ^^ { case functor ~ _ ~ args ~ _ => TypeApply(functor, args.toList) }
+    | funTypeExpr
+    | id ^^ { s => TypeId(s) })
+    
+  def valDef = ("val" | "var") ~ id ~ ":" ~ typeExpr ~ optValue ^^ {
+    case "val" ~ valName ~ _ ~ ty ~ value => t.ValDef(t.Id(valName), ty, value)
+    case "var" ~ valName ~ _ ~ ty ~ value => t.ValDef(t.Id(valName), ty, value) //TODO mutability
+  }
+  def stmt = (/*funDef
+    | */valDef
+    //| structDef
+    //| traitDef
+    | expr)
+  def blockSep = (";" | "\n")
+  def block = ("{" ~> (blockSep*) ~> repsep(stmt, blockSep+) <~ (blockSep*) <~ "}") ^^ { t.Block(_) }    
+    def lvalue: Parser[Tree] = (
+    /*("*" ~ lvalue ^^ { case _ ~ e => PtrDeref(e) })
+    | ((id ^^ { Id(_) }) | atom) ~ "." ~ memberAccess ^^ { case t ~ _ ~ i => i(t) }
+
+    | */(id ^^ { t.Id(_) }))
+  def expr: Parser[Tree] = (
+    block
+   // | lvalue ~ "=" ~ expr ^^ { case lv ~ _ ~ value => Assign(lv, value) }
+   // | "if" ~ "(" ~ expr ~ ")" ~ expr ~ "else" ~ expr ^^ { case _ ~ _ ~ cond ~ _ ~ tb ~ _ ~ fb => If(cond, tb, fb) }
+    //| "if" ~ "(" ~ expr ~ ")" ~ expr ^^ { case _ ~ _ ~ cond ~ _ ~ tb => If(cond, tb, Block()) }
+    //| "while" ~ "(" ~ expr ~ ")" ~ expr ^^ { case _ ~ _ ~ cond ~ _ ~ body => While(cond, body) }
+    //| basicExpr ~ "==" ~ basicExpr ^^ { case e1 ~ _ ~ e2 => Call(Id("=="), List(e1, e2)) }
+    //| basicExpr ~ "<=" ~ basicExpr ^^ { case e1 ~ _ ~ e2 => Call(Id("<="), List(e1, e2)) }
+    //| basicExpr ~ "!=" ~ basicExpr ^^ { case e1 ~ _ ~ e2 => Call(Id("!="), List(e1, e2)) }
+    | basicExpr)
+def argList = repsep(expr, ',')
+  def basicExpr: Parser[Tree] = (
+
+    (factorExpr ~ "+" ~ factorExpr) ^^ { case ta ~ _ ~ e => t.Apply(t.Id("+"), List(ta, e)) }
+    | (factorExpr ~ "-" ~ factorExpr) ^^ { case ta ~ _ ~ e => t.Apply(t.Id("-"), List(ta, e)) }
+    | factorExpr)
+  def factorExpr: Parser[Tree] = (
+    callExpr ~ "*" ~ callExpr ^^ { case e1 ~ _ ~ e2 => t.Apply(t.Id("*"), List(e1, e2)) }
+    | callExpr)
+  def callExpr: Parser[Tree] = (
+    (lvExpr ~ "(" ~ argList ~ ")") ^^ { case e ~ _ ~ args ~ _ => t.Apply(e, args) }
+    | lvExpr)
+  def lvExpr: Parser[Tree] = (
+    lvalue | atom)
+  def atom: Parser[Tree] = (
+   /* "@".r ~ id ^^ { case _ ~ id => PtrRef(Id(id)) }
+    |*/ literal | ("(" ~ expr ~ ")") ^^ { case _ ~ e ~ _ => e })
+  
+ def literal : Parser[Literal[Any]]= (
+   (("-".r?) ~ integerLiteral) ^^ { case Some(_) ~ d => t.Literal[Any](-Integer.parseInt(d)) case None ~ d => t.Literal[Any](Integer.parseInt(d)) }
+    | (""""[^"]*""""r) ^^ { s => t.Literal[Any](s.slice(1, s.length() - 1)) })
+    //| ("true"r) ^^ { _ => t.Literal[Boolean](true) }
+    //| ("false"r) ^^ { _ => t.Literal[Boolean](false) })
+/*
   def qualId = id ~ (("." ~> id)*) ^^ { case i ~ Nil => QualId(List(i)) case i ~ is => QualId(i :: is) }
 
   def program: Parser[Tree] = expr // TODO maybe not that good
@@ -97,5 +155,5 @@ object Grammar extends RegexParsers {
   def atom: Parser[Expr] = (
     "@".r ~ id ^^ { case _ ~ id => PtrRef(Id(id)) }
     | literal | ("(" ~ expr ~ ")") ^^ { case _ ~ e ~ _ => e })
-
+*/
 }
