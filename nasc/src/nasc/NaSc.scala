@@ -56,10 +56,18 @@ object NaSc {
   }
 
   def main(args: Array[String]): Unit = {
-    val pipeline = new ParsePhase() ++ new SymPhase()
+    val pipeline = new ParsePhase()// ++ new SymPhase()
     val res = pipeline.process(p0)
     println("========== res : ")
-    println(res)
+    val tr = new ast.syntax.AstTransform.Transformer {
+    	def apply(t : ast.syntax.Tree) = {
+    	  println("Dazu")
+    	  println(t)
+    	  println()
+    	  t
+    	}
+    }
+    ast.syntax.AstTransform.transform(tr, res)
   }
   val p0 = """{val a: Int = 1; a(a,a)}"""
   def comp(p: String) = {

@@ -25,8 +25,9 @@ object Grammar extends RegexParsers {
     | id ^^ { s => TypeId(s) })
     
   def valDef = ("val" | "var") ~ id ~ ":" ~ typeExpr ~ optValue ^^ {
-    case "val" ~ valName ~ _ ~ ty ~ value => t.ValDef(t.Id(valName), ty, value)
-    case "var" ~ valName ~ _ ~ ty ~ value => t.ValDef(t.Id(valName), ty, value) //TODO mutability
+    case "val" ~ vn ~ _ ~ ty ~ value =>
+      new ValDef(new Name(vn), ty, value)
+    //case "var" ~ valName ~ _ ~ ty ~ value => t.ValDef(t.Id(valName), ty, value) //TODO mutability
   }
   def stmt = (/*funDef
     | */valDef
@@ -34,12 +35,12 @@ object Grammar extends RegexParsers {
     //| traitDef
     | expr)
   def blockSep = (";" | "\n")
-  def block = ("{" ~> (blockSep*) ~> repsep(stmt, blockSep+) <~ (blockSep*) <~ "}") ^^ { t.Block(_) }    
+  def block = ("{" ~> (blockSep*) ~> repsep(stmt, blockSep+) <~ (blockSep*) <~ "}") ^^ { x=> new Block(x) }    
     def lvalue: Parser[Tree] = (
     /*("*" ~ lvalue ^^ { case _ ~ e => PtrDeref(e) })
     | ((id ^^ { Id(_) }) | atom) ~ "." ~ memberAccess ^^ { case t ~ _ ~ i => i(t) }
 
-    | */(id ^^ { t.Id(_) }))
+    | */(id ^^ { x=> new Name(x) }))
   def expr: Parser[Tree] = (
     block
    // | lvalue ~ "=" ~ expr ^^ { case lv ~ _ ~ value => Assign(lv, value) }
@@ -53,14 +54,14 @@ object Grammar extends RegexParsers {
 def argList = repsep(expr, ',')
   def basicExpr: Parser[Tree] = (
 
-    (factorExpr ~ "+" ~ factorExpr) ^^ { case ta ~ _ ~ e => t.Apply(t.Id("+"), List(ta, e)) }
-    | (factorExpr ~ "-" ~ factorExpr) ^^ { case ta ~ _ ~ e => t.Apply(t.Id("-"), List(ta, e)) }
+    (factorExpr ~ "+" ~ factorExpr) ^^ { case ta ~ _ ~ e => new Apply(new Name("+"), List(ta, e)) }
+    | (factorExpr ~ "-" ~ factorExpr) ^^ { case ta ~ _ ~ e => new Apply(new Name("-"), List(ta, e)) }
     | factorExpr)
   def factorExpr: Parser[Tree] = (
-    callExpr ~ "*" ~ callExpr ^^ { case e1 ~ _ ~ e2 => t.Apply(t.Id("*"), List(e1, e2)) }
+    callExpr ~ "*" ~ callExpr ^^ { case e1 ~ _ ~ e2 => new Apply(new Name("*"), List(e1, e2)) }
     | callExpr)
   def callExpr: Parser[Tree] = (
-    (lvExpr ~ "(" ~ argList ~ ")") ^^ { case e ~ _ ~ args ~ _ => t.Apply(e, args) }
+    (lvExpr ~ "(" ~ argList ~ ")") ^^ { case e ~ _ ~ args ~ _ => new Apply(e, args) }
     | lvExpr)
   def lvExpr: Parser[Tree] = (
     lvalue | atom)
@@ -69,8 +70,8 @@ def argList = repsep(expr, ',')
     |*/ literal | ("(" ~ expr ~ ")") ^^ { case _ ~ e ~ _ => e })
   
  def literal : Parser[Literal[Any]]= (
-   (("-".r?) ~ integerLiteral) ^^ { case Some(_) ~ d => t.Literal[Any](-Integer.parseInt(d)) case None ~ d => t.Literal[Any](Integer.parseInt(d)) }
-    | (""""[^"]*""""r) ^^ { s => t.Literal[Any](s.slice(1, s.length() - 1)) })
+   (("-".r?) ~ integerLiteral) ^^ { case Some(_) ~ d => new Literal[Any](-Integer.parseInt(d)) case None ~ d => new Literal[Any](Integer.parseInt(d)) }
+    | (""""[^"]*""""r) ^^ { s => new Literal[Any](s.slice(1, s.length() - 1)) })
     //| ("true"r) ^^ { _ => t.Literal[Boolean](true) }
     //| ("false"r) ^^ { _ => t.Literal[Boolean](false) })
 /*

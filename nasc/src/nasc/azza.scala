@@ -1,124 +1,121 @@
 package nasc
 
+class TestT extends FF with SyntaxTrees {
+
+  def doTransform(t: Tree): Tree = {
+    println("++++++++++++++ " + t)
+    println()
+    t
+  }
+}
+trait FF { self: Trees =>
+  def doTransform(t: Tree): Tree
+}
+
 trait Trees {
 
-  type Tree_t <: Tree
-  type Apply_t <: Apply with Tree
-  type Id_t <: Id with Tree
-  type ValDef_t <: ValDef with Tree
-  type Block_t <: Block with Tree
-  type Literal_t[T] <: Literal[T] with Tree
+  type Tree <: BaseTree
+  type NameTree <: Tree
 
-  trait Tree {
+  trait BaseTree {
     def children: List[Tree]
   }
 
-  trait Apply extends Tree {
-    def function: Tree_t
-    def arguments: List[Tree_t]
+  trait TypeTree extends BaseTree
+
+  class Apply(val function: Tree, val arguments: List[Tree]) extends BaseTree {
     def children = function :: arguments
 
     override def toString = function.toString + "(" + Utils.repsep(arguments.map(_.toString)) + ")"
   }
 
-  trait Id extends Tree {
-    def children = List()
-  }
-
-  trait ValDef extends Tree {
-    def valName: Id_t
-    def value: Option[Tree_t]
+  class ValDef(val valName: NameTree, val typeTree: TypeExpr, val value: Option[Tree]) extends BaseTree {
     def children = valName :: value.toList
 
     override def toString = "val " + valName + " : ?" + (value.map(" = " + _.toString).getOrElse(""))
   }
 
-  trait Block extends Tree {
+  class Block(val children: List[Tree]) extends BaseTree {
     override def toString = "{\n" + children.map(_.toString).mkString("\n") + "\n}"
   }
 
-  trait Literal[T] extends Tree {
-    def value: T
+  class Literal[T](val value: T) extends BaseTree {
     def children = List()
+
+    override def toString = "[lit:" + value.toString + "]"
   }
 
 }
+
+object abs {
+    def transformList(inTrees : Trees, outTrees: Trees)(f: inTrees.Tree => outTrees.Tree, t: List[inTrees.Tree]): List[outTrees.Tree] = { t.map(transform(inTrees,outTrees)(f, _)) }
+    def transform(inTrees : Trees, outTrees: Trees)(f: inTrees.Tree => outTrees.Tree, t: inTrees.Tree): outTrees.Tree = {
+      def tr(t : inTrees.Tree):outTrees.Tree = transform(inTrees, outTrees)(f, t)
+      def trl(t : List[inTrees.Tree]):List[outTrees.Tree] = transformList(inTrees,outTrees)(f, t)
+      val ttt = (t match {
+        case a: inTrees.Apply => {
+          new outTrees.Apply(tr(a.function), trl(a.arguments))
+        }
+        case vd: inTrees.ValDef => {
+          new outTrees.ValDef(tr(vd.valName).asInstanceOf[outTrees.NameTree], vd.typeTree, vd.value.map { x => tr(x)})
+        }
+        case b: inTrees.Block => {
+          new outTrees.Block(trl(b.children))
+        }
+        case lit: inTrees.Literal[_] => {
+          lit
+        }
+        case name: inTrees.NameTree => {
+          name
+        }
+        //case x => x 
+      }).asInstanceOf[outTrees.Tree]
+      f(ttt)
+    }
+
+}
+
 trait GenericTrees extends Trees {
-  type Block_t = Block
-  class Block(val a: Int, val b: Int) extends Tree with super.Block {def children = List()}
-  def Block(a : Int, b : Int) = new Block(a, b)
+  object transform {
+    trait Transformer { def apply(t: Tree): Tree }
+    
+  
+  }
+
 }
 
 trait SyntaxTrees extends Trees {
-  type Apply_t = Apply
-  type Id_t = Id
-  type ValDef_t = ValDef
-  type Literal_t[T] = Literal[T]
-
-    case class Literal[T](value: T) extends super.Literal[T] with Tree
-
-    case class Apply(override val function: Tree, override val arguments: List[Tree]) extends Apply with Tree
-
-    case class Id(name: String) extends super.Id with Tree {
-      override def toString = name + "?"
-    }
-
-    case class ValDef(valName: Id, typeExpr: TypeExpr, value: Option[Tree]) extends super.ValDef with Tree
-  
-
-}
-/*
-trait LinkedTrees extends Trees {
-  type Tree = t.Tree
-  type Apply = t.Apply
-  type Id = t.Id
-  type ValDef = t.ValDef
-  type Block = t.Block
-  type Literal[T] = t.Literal[T]
-  object t {
-
-    trait Tree extends BaseTree {
-      def referencedSymbol: Option[Symbol]
-      def hasSymbol = !referencedSymbol.isEmpty
-    }
-
-    case class Literal[T](value: T) extends BaseLiteral[T] with Tree {
-      def referencedSymbol = None
-    }
-
-    case class Apply(function: Tree, arguments: List[Tree]) extends BaseApply with Tree {
-      def referencedSymbol = None
-    }
-
-    case class Id(val symbol: IdSymbol) extends BaseId with Tree {
-      def children = List()
-      def referencedSymbol = Some(symbol)
-
-      override def toString = symbol.toString
-    }
-
-    case class ValDef(valName: Id, typeExpr: TypeExpr, value: Option[Tree]) extends BaseValDef with Tree {
-      def referencedSymbol = None
-    }
-
-    case class Block(children: List[Tree]) extends BaseBlock with Tree {
-      def referencedSymbol = None
-    }
-
+  type Tree = BaseTree
+  type NameTree = Name
+  class Name(val name: String) extends BaseTree {
+    def children = List()
+    override def toString = name + "?"
   }
 
-}*/
+}
+
+trait LinkedTrees extends Trees {
+  type Tree <: BaseTree
+  type NameTree = Id with Tree
+  class Id(val symbol: Symbol) extends BaseTree {
+    def children = List()
+  }
+}
+
+trait TypedTrees extends Trees {
+  type Tree = BaseTree { def typeSymbol: TypeSymbol }
+}
 
 package object ast {
-  //object generic extends GenericTrees
   object syntax extends SyntaxTrees with GenericTrees
-  //object linked extends LinkedTrees with GenericTrees
+  object linked extends LinkedTrees with GenericTrees
+  object typed extends TypedTrees with LinkedTrees with GenericTrees
 }
 
 object s {
   import ast._
   def aaa() = {
-	  val a = syntax.Block(1,2)
+    val a: typed.Tree = new typed.Block(List()) { def typeSymbol = null }
   }
 }
 

@@ -19,10 +19,10 @@ class SymPhase extends Phase[ast.syntax.Tree, ast.linked.Tree] {
   var contextHistory: Map[ast.syntax.Tree, Context] = Map()
 
   def execute(tree: ast.syntax.Tree): ast.linked.Tree = {
-    val endCtx = process(Context(Map(), None), tree)
-    endCtx.tree
+    /*val endCtx = process(Context(Map(), None), tree)
+    endCtx.tree*/ null.asInstanceOf[ast.linked.Tree]
   }
-  
+/*  
   case class ContextTree(ctx : Context, tree : ast.linked.Tree)
   case class ContextTrees(ctx : Context, trees : List[ast.linked.Tree] = List())
   def processList(ctx : Context, es : List[ast.syntax.Tree]) : ContextTrees = {
@@ -98,5 +98,5 @@ class SymPhase extends Phase[ast.syntax.Tree, ast.linked.Tree] {
         }
       }
     } catch { case x => throw new RuntimeException("Unknown type : " + e + "(" + x.getMessage() + ")") }
-  }
+  }*/
 }
