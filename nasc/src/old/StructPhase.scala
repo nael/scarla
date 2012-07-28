@@ -1,4 +1,4 @@
-package nasc
+/*package nasc
 
 class StructPhase extends Phase[CompilationUnit, CompilationUnit] {
   def name = "struct"
@@ -137,4 +137,4 @@ class StructPhase extends Phase[CompilationUnit, CompilationUnit] {
     }
     case _ => st
   }
-}
+}*/

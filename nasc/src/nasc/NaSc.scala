@@ -2,7 +2,11 @@ package nasc
 
 import java.io.{ File, FileOutputStream }
 import java.io.FileWriter
-
+object IMP {
+implicit def func2partial[A,B](f: A => B) : PartialFunction[A,B] = {
+  {case x => f(x)}
+}
+}
 object NaSc {
   def exec() = {
     val pr = scala.sys.process.stringToProcess("cmd /C " + "do")
@@ -56,20 +60,34 @@ object NaSc {
   }
 
   def main(args: Array[String]): Unit = {
-    val pipeline = new ParsePhase()// ++ new SymPhase()
-    val res = pipeline.process(p0)
+    val pipeline = new ParsePhase() ++ new SymPhase() ++ new TypePhase() ++ new CodeGenPhase()
+    val res = pipeline.process(q0)
     println("========== res : ")
-    val tr = new ast.syntax.AstTransform.Transformer {
-    	def apply(t : ast.syntax.Tree) = {
-    	  println("Dazu")
-    	  println(t)
-    	  println()
-    	  t
-    	}
-    }
-    ast.syntax.AstTransform.transform(tr, res)
+    println(res)
+    val fw = new FileWriter("test.ir")
+      fw.write(res)
+      fw.close()
   }
-  val p0 = """{val a: Int = 1; a(a,a)}"""
+  val p0 = """{
+    class A {}
+    class B {}
+    def f(a: A): B = {}
+    val aa: Function[A,B] = f
+    val zz: Function[A,B]
+    val uu: Function[A,Int]
+    val a : Int
+    val bb: B = aa(a)
+    val cc: B = aa(a)
+    }"""
+    val q0 = """{
+      native(plus) def +(x: Int, y: Int): Int
+      native(printInt) def printInt(x: Int): Unit
+      
+      def f(x: Int, y: Int): Int = y + y
+      val zz : Function[Int, Int, Int] = f
+      val a : Int = zz(1,2)
+      printInt(a)
+    }"""
   def comp(p: String) = {
     /*
        * p6: funptr & ref test => 6\n2

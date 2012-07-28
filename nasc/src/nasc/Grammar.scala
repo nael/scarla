@@ -4,9 +4,6 @@ import scala.util.parsing.combinator._
 
 object Grammar extends RegexParsers {
 
-  //import ast.generic.t._
-  import ast.syntax._
-  
   val id = """[a-zA-Z]([a-zA-Z0-9_])*"""r
   val integerLiteral = """[0-9]+"""r
   val booleanLiteral = """true|false"""
@@ -14,51 +11,74 @@ object Grammar extends RegexParsers {
 
   override protected val whiteSpace = """( |\t)+""".r
 
-    def program: Parser[Tree] = expr // TODO maybe not that good
-    
-      def funTypeExpr : Parser[TypeExpr] = ("(" ~> repsep(typeExpr, ",") <~ ")"/* | (typeExpr ^^ { List(_)})*/) ~ "=>" ~ typeExpr ^^ { case args ~ _ ~ ret => TypeApply("Function", ret :: args)}
-    def optValue: Parser[Option[Tree]] = (("=" ~ expr)?) ^^ { u => u.map { case _ ~ e => e } }
+  def program: Parser[Tree] = expr // TODO maybe not that good
 
-  def typeExpr: Parser[TypeExpr] = (
-    id ~ "[" ~ repsep(typeExpr, ",") ~ "]" ^^ { case functor ~ _ ~ args ~ _ => TypeApply(functor, args.toList) }
+  def funTypeExpr: Parser[Tree] = ("(" ~> repsep(typeExpr, ",") <~ ")" /* | (typeExpr ^^ { List(_)})*/ ) ~ "=>" ~ typeExpr ^^ { case args ~ _ ~ ret => new Apply(new Name("Function", true), ret :: args) }
+  def optValue: Parser[Option[Tree]] = (("=" ~ expr)?) ^^ { u => u.map { case _ ~ e => e } }
+
+  def typeExpr: Parser[Tree] = (
+    id ~ "[" ~ repsep(typeExpr, ",") ~ "]" ^^ { case functor ~ _ ~ args ~ _ => new Apply(new Name(functor, true), args.toList) }
     | funTypeExpr
-    | id ^^ { s => TypeId(s) })
-    
+    | id ^^ { s => new Name(s, true) })
+
   def valDef = ("val" | "var") ~ id ~ ":" ~ typeExpr ~ optValue ^^ {
     case "val" ~ vn ~ _ ~ ty ~ value =>
-      new ValDef(new Name(vn), ty, value)
+      new ValDef(new Name(vn, false), ty, value)
     //case "var" ~ valName ~ _ ~ ty ~ value => t.ValDef(t.Id(valName), ty, value) //TODO mutability
   }
-  def stmt = (/*funDef
-    | */valDef
-    //| structDef
+
+  def structDef: Parser[Tree] =
+    ("value" ^^ { _ => true } | "" ^^ { _ => false }) ~ "class" ~ id ~ optArgList /*~ optExtends */ ~ block ^^
+      {
+        case isValue ~ _ ~ structName ~ ctorArgs /*~ traits*/ ~ body => {
+          new TypeDef(new Name(structName, true), List(), Some(new Struct(ctorArgs, body)))
+        }
+      }
+
+  def argList = repsep(expr, ',')
+  def arg = id ~ ":" ~ typeExpr ^^ {
+    case name ~ _ ~ ty => (new Name(name, false), ty)
+  }
+  def funArgList = repsep(arg, ",") ^^ { argList => argList.map { arg => new ArgDef(arg._1, arg._2) } }
+
+  def optArgList = (("(" ~> funArgList <~ ")")?) ^^ { case None => List() case Some(x) => x }
+  def funDef = "def" ~ (id | operators) ~ "(" ~ funArgList ~ ")" ~ ":" ~ typeExpr ~ (("=" ~ expr)?) ^^
+  {
+    case _ ~ name ~ _ ~ args ~ _ ~ _ ~ retType ~ Some(_ ~ body) =>
+      new DefDef(new Name(name, false), args, retType, Some(body))
+    case _ ~ name ~ _ ~ args ~ _ ~ _ ~ retType ~ None =>
+      new DefDef(new Name(name, false), args, retType, None)
+  }
+
+  def stmt = ( (("native(" ~ id ~ ")")?) ~ funDef ^^ {case None~d => d case Some(_ ~ nid ~ _) ~ d => {d.attr += attributes.Native(nid); d}}
+    |  valDef
+    | structDef
     //| traitDef
     | expr)
   def blockSep = (";" | "\n")
-  def block = ("{" ~> (blockSep*) ~> repsep(stmt, blockSep+) <~ (blockSep*) <~ "}") ^^ { x=> new Block(x) }    
-    def lvalue: Parser[Tree] = (
+  def block = ("{" ~> (blockSep*) ~> repsep(stmt, blockSep+) <~ (blockSep*) <~ "}") ^^ { x => new Block(x) }
+  def lvalue: Parser[Tree] = (
     /*("*" ~ lvalue ^^ { case _ ~ e => PtrDeref(e) })
     | ((id ^^ { Id(_) }) | atom) ~ "." ~ memberAccess ^^ { case t ~ _ ~ i => i(t) }
 
-    | */(id ^^ { x=> new Name(x) }))
+    | */ (id ^^ { x => new Name(x, false) }))
   def expr: Parser[Tree] = (
     block
-   // | lvalue ~ "=" ~ expr ^^ { case lv ~ _ ~ value => Assign(lv, value) }
-   // | "if" ~ "(" ~ expr ~ ")" ~ expr ~ "else" ~ expr ^^ { case _ ~ _ ~ cond ~ _ ~ tb ~ _ ~ fb => If(cond, tb, fb) }
+    // | lvalue ~ "=" ~ expr ^^ { case lv ~ _ ~ value => Assign(lv, value) }
+    // | "if" ~ "(" ~ expr ~ ")" ~ expr ~ "else" ~ expr ^^ { case _ ~ _ ~ cond ~ _ ~ tb ~ _ ~ fb => If(cond, tb, fb) }
     //| "if" ~ "(" ~ expr ~ ")" ~ expr ^^ { case _ ~ _ ~ cond ~ _ ~ tb => If(cond, tb, Block()) }
     //| "while" ~ "(" ~ expr ~ ")" ~ expr ^^ { case _ ~ _ ~ cond ~ _ ~ body => While(cond, body) }
     //| basicExpr ~ "==" ~ basicExpr ^^ { case e1 ~ _ ~ e2 => Call(Id("=="), List(e1, e2)) }
     //| basicExpr ~ "<=" ~ basicExpr ^^ { case e1 ~ _ ~ e2 => Call(Id("<="), List(e1, e2)) }
     //| basicExpr ~ "!=" ~ basicExpr ^^ { case e1 ~ _ ~ e2 => Call(Id("!="), List(e1, e2)) }
     | basicExpr)
-def argList = repsep(expr, ',')
   def basicExpr: Parser[Tree] = (
 
-    (factorExpr ~ "+" ~ factorExpr) ^^ { case ta ~ _ ~ e => new Apply(new Name("+"), List(ta, e)) }
-    | (factorExpr ~ "-" ~ factorExpr) ^^ { case ta ~ _ ~ e => new Apply(new Name("-"), List(ta, e)) }
+    (factorExpr ~ "+" ~ factorExpr) ^^ { case ta ~ _ ~ e => new Apply(new Name("+", false), List(ta, e)) }
+    | (factorExpr ~ "-" ~ factorExpr) ^^ { case ta ~ _ ~ e => new Apply(new Name("-", false), List(ta, e)) }
     | factorExpr)
   def factorExpr: Parser[Tree] = (
-    callExpr ~ "*" ~ callExpr ^^ { case e1 ~ _ ~ e2 => new Apply(new Name("*"), List(e1, e2)) }
+    callExpr ~ "*" ~ callExpr ^^ { case e1 ~ _ ~ e2 => new Apply(new Name("*", false), List(e1, e2)) }
     | callExpr)
   def callExpr: Parser[Tree] = (
     (lvExpr ~ "(" ~ argList ~ ")") ^^ { case e ~ _ ~ args ~ _ => new Apply(e, args) }
@@ -66,15 +86,15 @@ def argList = repsep(expr, ',')
   def lvExpr: Parser[Tree] = (
     lvalue | atom)
   def atom: Parser[Tree] = (
-   /* "@".r ~ id ^^ { case _ ~ id => PtrRef(Id(id)) }
+    /* "@".r ~ id ^^ { case _ ~ id => PtrRef(Id(id)) }
     |*/ literal | ("(" ~ expr ~ ")") ^^ { case _ ~ e ~ _ => e })
-  
- def literal : Parser[Literal[Any]]= (
-   (("-".r?) ~ integerLiteral) ^^ { case Some(_) ~ d => new Literal[Any](-Integer.parseInt(d)) case None ~ d => new Literal[Any](Integer.parseInt(d)) }
+
+  def literal: Parser[Literal[Any]] = (
+    (("-".r?) ~ integerLiteral) ^^ { case Some(_) ~ d => new Literal[Any](-Integer.parseInt(d)) case None ~ d => new Literal[Any](Integer.parseInt(d)) }
     | (""""[^"]*""""r) ^^ { s => new Literal[Any](s.slice(1, s.length() - 1)) })
-    //| ("true"r) ^^ { _ => t.Literal[Boolean](true) }
-    //| ("false"r) ^^ { _ => t.Literal[Boolean](false) })
-/*
+  //| ("true"r) ^^ { _ => t.Literal[Boolean](true) }
+  //| ("false"r) ^^ { _ => t.Literal[Boolean](false) })
+  /*
   def qualId = id ~ (("." ~> id)*) ^^ { case i ~ Nil => QualId(List(i)) case i ~ is => QualId(i :: is) }
 
   def program: Parser[Tree] = expr // TODO maybe not that good

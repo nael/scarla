@@ -1,5 +1,5 @@
 package nasc
-
+/*
 trait BuiltinFunction {
   def name: String
   def functionType: Defs.types.Function.Instance
@@ -115,4 +115,4 @@ object Defs {
       ExternFunDef("printInt", "@printInt", types.Function.create(types.Unit, List(types.Int)), false)
       )
 
-}
+}*/

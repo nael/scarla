@@ -5,7 +5,7 @@ import java.io.PrintWriter
 
 object G {
   var verbose = true
-  val pp = new PrettyPrinter()
+  //val pp = new PrettyPrinter()
 }
 
 class CompilationUnit(var root: Tree) {
@@ -15,7 +15,7 @@ class CompilationUnit(var root: Tree) {
 trait AttrCopy {
   def copyAttrs(that: this.type): Unit = {}
 }
-
+/*
 trait Tree extends AttrCopy {
   def children: List[Tree]
 
@@ -435,3 +435,4 @@ case class PtrDeref(ptr: Expr) extends LValue {
   def children = List(ptr)
   override def toString = "(*" + ptr.toString + ") : " + ty
 }
+*/

@@ -32,6 +32,10 @@ class CodeGenerator(val dest: OutputStream) {
   def freshName(s: String = ""): String = {
     "%" + freshLabel(s)
   }
+  
+  def freshGlobal(s: String = ""): String = {
+    "@" + freshLabel(s)
+  }
 
   def freshLabel(s: String) = {
     val i = varNames.getOrElse(s, 0)
@@ -93,6 +97,11 @@ declare noalias i8* @malloc(i64) nounwind
 define void @printInt(i32 %n) nounwind {
     call i32 (i8*, ...)* @printf(i8* getelementptr inbounds ([4 x i8]* @.intFmtStr, i32 0, i32 0), i32 %n)
     ret void
+}
+        
+define i32 @plus(i32 %p, i32 %q) {
+    %n = add i32 %p, %q
+    ret i32 %n
 }
 
 """)

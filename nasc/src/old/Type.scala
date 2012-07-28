@@ -1,4 +1,4 @@
-package nasc
+/*package nasc
 object Type {
 
 }
@@ -160,4 +160,4 @@ object Types {
     def bareType = underlying.bareType
   }
 
-}
+}*/

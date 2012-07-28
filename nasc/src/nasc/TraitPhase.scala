@@ -1,4 +1,4 @@
-package nasc
+/*package nasc
 
 class TraitPhase extends Phase[CompilationUnit, CompilationUnit] {
 
@@ -143,4 +143,4 @@ class TraitPhase extends Phase[CompilationUnit, CompilationUnit] {
     }
     case _ => s
   }
-}
+}*/

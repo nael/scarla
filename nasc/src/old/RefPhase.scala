@@ -1,4 +1,4 @@
-package nasc
+/*package nasc
 
 class RefPhase extends Phase[CompilationUnit, CompilationUnit] {
   def name = "ref"
@@ -64,4 +64,4 @@ class RefPhase extends Phase[CompilationUnit, CompilationUnit] {
     case _ => st
   }
 
-}
+}*/

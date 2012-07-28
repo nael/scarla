@@ -2,19 +2,156 @@ package nasc
 import java.io.ByteArrayOutputStream
 
 trait SymbolStorage {
+
+  def genAccess(cg: CodeGenerator): String
+
   def asRaw: SymbolStorage.Raw = this match { case r: SymbolStorage.Raw => r case _ => Utils.error("Not a raw storage : " + this) }
   def asPtr: SymbolStorage.Ptr = this match { case r: SymbolStorage.Ptr => r case _ => Utils.error("Not a ptr storage : " + this) }
   def asIndex: SymbolStorage.Index = this match { case r: SymbolStorage.Index => r case _ => Utils.error("Not an indexed storage : " + this) }
 }
 
 object SymbolStorage {
-  case class None extends SymbolStorage
-  case class Raw(name: String) extends SymbolStorage
+  case class None extends SymbolStorage {
+    def genAccess(cg: CodeGenerator): String = Utils.error("Cant access None storage")
+  }
+  case class Raw(name: String) extends SymbolStorage {
+    def genAccess(cg: CodeGenerator) = name
+  }
 
-  case class Ptr(name: String) extends SymbolStorage
-  case class Index(index: Int) extends SymbolStorage
+  case class Ptr(name: String, ty: String) extends SymbolStorage {
+    def genAccess(cg: CodeGenerator) = {
+      val valName = cg.freshLabel(name + "_val")
+      cg.loadPtr(valName, ty + "* " + name)
+      valName
+    }
+  }
+  case class Index(index: Int) extends SymbolStorage {
+    def genAccess(cg: CodeGenerator): String = Utils.error("Cant access Index storage")
+  }
 }
 
+class CodeGenPhase extends Phase[Tree, String] {
+  def name = "codegen"
+
+    def typeLayout(s: Symbol): String = {
+    	if(s == Builtin.Int.symbol) "i32"
+    	else if(s == Builtin.Unit.symbol) "void"
+    	else if(Builtin.isFunction(s)) {
+    	  typeLayout(Builtin.functionReturnType(s)) + "(" + (Builtin.functionArgTypes(s) map typeLayout mkString ", ") + ")*"
+    	} else { Utils.error("No layout for type " + s)}
+  	}
+
+  def execute(tree: Tree): String = {
+    val os = new ByteArrayOutputStream()
+    val cg = new CodeGenerator(os)
+    //decideStorage(cg, cu.root)
+    cg.prelude()
+    genDefs(cg, tree)
+    cg.beginMain()
+    genTree(cg, tree)
+    cg.endMain()
+    cg.end()
+    os.toString()
+  }
+
+  def genDefs(cg: CodeGenerator, tree: Tree) = {
+    tree traverse {
+
+      case dd: DefDef if !dd.body.isEmpty => {
+        val fun = dd.defName.symbol
+        val llvmFunName = cg.freshGlobal(fun.uniqueName)
+        val args = dd.arguments map { _.argName.symbol }
+        val llvmArgValNames = args map { arg => cg.freshName(arg.uniqueName + "_arg") }
+        val llvmArgNames = args map { arg => cg.freshName(arg.uniqueName) }
+
+        println("Fun ts :" + fun.typeSymbol)
+
+        val argTypes = Builtin.functionArgTypes(fun.typeSymbol)
+        val retType = Builtin.functionReturnType(fun.typeSymbol)
+
+        fun.storage = SymbolStorage.Raw(llvmFunName)
+        args zip llvmArgNames zip argTypes foreach { case ((arg, llvmArgName), argType) => arg.storage = SymbolStorage.Ptr(llvmArgName, typeLayout(argType)) }
+
+        val argString = argTypes zip llvmArgValNames map { case (argType, llvmArgValName) => typeLayout(argType) + " " + llvmArgValName } mkString ", "
+
+        cg.beginFunction(typeLayout(retType), llvmFunName, argString)
+
+        llvmArgNames zip llvmArgValNames zip argTypes foreach {
+          case ((llvmArgName, llvmArgValName), argType) =>
+            cg.allocatePtr(llvmArgName, typeLayout(argType))
+            cg.store(typeLayout(argType) + "* " + llvmArgName, typeLayout(argType) + " " + llvmArgValName)
+        }
+
+        val res = genTree(cg, dd.body.get)
+        if (retType == Builtin.Unit.symbol)
+          cg.writer.println("ret void")
+        else {
+          cg.writer.println("ret " + typeLayout(retType) + " " + res)
+        }
+        cg.endFunction()
+      }
+
+      case dd: DefDef => {
+        val nat = dd.attr collect { case attributes.Native(x) => x }
+        if (nat.isEmpty) Utils.error("Non-native function with no body made it through codegen : " + dd)
+        dd.defName.symbol.storage = SymbolStorage.Raw("@" + nat.head)
+      }
+
+    }
+  }
+
+  def genTree(cg: CodeGenerator, tree: Tree): String = {
+    tree match {
+
+      case b: Block => b.children map { t => genTree(cg, t) } last
+
+      case s: Sym => s.symbol.storage.genAccess(cg)
+
+      case a: Apply => {
+        val fTy = a.function.typeSymbol
+        val retTy = fTy.typeVars.last._2
+        val f = typeLayout(retTy) + " " + genTree(cg, a.function)
+        val args = a.arguments map { arg => typeLayout(arg.typeSymbol) + " " + genTree(cg, arg) }
+        if (retTy == Builtin.Unit.symbol) {
+          cg.voidFunctionCall(f, args)
+          "undef"
+        } else {
+          val res = cg.freshName()
+          cg.functionCall(f, args, res)
+          res
+        }
+
+      }
+
+      case vd: ValDef => {
+        val sym = vd.valName.symbol
+        if (sym.typeSymbol != Builtin.Unit) {
+          val llvmName = cg.freshName(sym.uniqueName)
+          val llvmType = typeLayout(sym.typeSymbol)
+          sym.storage = SymbolStorage.Ptr(llvmName, llvmType)
+          cg.allocatePtr(llvmName, llvmType)
+          vd.value match {
+            case None => ()
+            case Some(v) => {
+              val value = genTree(cg, v)
+              cg.store(llvmType + "* " + llvmName, llvmType + " " + value)
+            }
+          }
+        } else { vd.valName.symbol.storage = SymbolStorage.None() }
+        "undef"
+      }
+
+      case lit: Literal[_] => {
+        lit.value match {
+          case i: Int => i.toString
+        }
+      }
+
+      case _ => { println("Warning skipping codegen for " + tree.getClass); "undef" }
+    }
+  }
+}
+/*
 class CodeGenPhase extends Phase[CompilationUnit, String] {
 
   def name = "codegen"
@@ -316,4 +453,4 @@ class CodeGenPhase extends Phase[CompilationUnit, String] {
     case Literals.String(s) => Utils.error("No string lit yet")
   }
 
-}
+}*/

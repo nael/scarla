@@ -4,25 +4,96 @@ case class Context(values: Map[String, List[Symbol]], next: Option[Context]) {
   def add(name: String, v: Symbol) = {
     Context(values + (name -> (v :: values.getOrElse(name, List()))), next)
   }
-  def getFirstId(name: String): Option[IdSymbol] =
-    values.getOrElse(name, List()).collect { case s: IdSymbol => s } match { case List() => next.flatMap(_.getFirstId(name)) case id :: ids => Some(id) }
-  def getFirstType(name: String) = values(name).collect { case s: TypeSymbol => s }.first
+
+  def getFirst(name: String, isType: Boolean): Option[Symbol] =
+    values.getOrElse(name, List()) filter { _.isType == isType } match { case List() => next.flatMap(_.getFirst(name, isType)) case id :: ids => Some(id) }
+  def getAll(name: String, isType: Boolean): List[Symbol] =
+    (values.getOrElse(name, List()) filter { _.isType == isType }) ++ (next match { case None => List() case Some(c) => c.getAll(name, isType)})
   def contains(name: String) = values.contains(name) && (!values(name).isEmpty)
   def chain(o: Context): Context = next match { case None => Context(values, Some(o)) case Some(c) => Context(values, Some(c.chain(o))) }
   override def toString = "{\n" + (values.map { case (k, v) => "\t" + k + " -> " + v + "\n" }).mkString + "next => " + next.getOrElse("{}").toString + "\n}"
 }
 
-class SymPhase extends Phase[ast.syntax.Tree, ast.linked.Tree] {
+class SymPhase extends Phase[Tree, Tree] {
 
   def name = "symbols"
 
-  var contextHistory: Map[ast.syntax.Tree, Context] = Map()
+  var contextHistory: Map[Tree, Context] = Map()
 
-  def execute(tree: ast.syntax.Tree): ast.linked.Tree = {
-    /*val endCtx = process(Context(Map(), None), tree)
-    endCtx.tree*/ null.asInstanceOf[ast.linked.Tree]
+  def execute(tree: Tree): Tree = {
+    new Linker().transform(tree)
   }
-/*  
+
+  class Linker extends TreeTransform {
+    var ctx = Context(Map(), None)
+
+    val doTransform: PartialFunction[Tree, Tree] = {
+      case name: Name => {
+        val syms = ctx.getAll(name.name, name.isTypeName)
+        if(syms.isEmpty) name
+        else new Sym(syms)
+      }
+    }
+    override def transform(t: Tree): Tree = {
+      val oldContext = ctx
+
+      def name(x: Tree) = x match {
+        case name: Name => Some(name.name)
+        case _ => None
+      }
+
+      def add(nameTree: Tree, sym: String => Symbol):Context = {
+        nameTree match {
+          case n: Name => ctx.add(n.name, sym(n.name))
+          case s: Sym => ctx.add(s.symbol.name, s.symbol)
+          case _ => ctx
+        }
+      }
+
+      ctx = t match {
+        case vd: ValDef => {
+          add(vd.valName, valName => new Symbol {
+            def name = valName
+            var typeSymbol: Symbol = null
+            var isType = false
+            var definition: Def = vd
+          })
+        }
+        case td: TypeDef => {
+          add(td.typeName, typeName => new Symbol {
+            def name = typeName
+            var typeSymbol: Symbol = null
+            var isType = true
+            var definition: Def = td
+          })
+        }
+        case ad: ArgDef => {
+          add(ad.argName, argName => new Symbol {
+            def name = argName
+            var typeSymbol: Symbol = null
+            var isType = false
+            var definition: Def = ad
+          })
+        }
+        case dd: DefDef => {
+          add(dd.defName, defName => new Symbol {
+            def name = defName
+            var typeSymbol: Symbol = null
+            var isType = false
+            var definition: Def = dd
+          })
+        }
+        case _ => ctx
+      }
+      val res = super.transform(t)
+      t match {
+        case _: Block => ctx = oldContext
+        case _ => ()
+      }
+      res
+    }
+  }
+  /*  
   case class ContextTree(ctx : Context, tree : ast.linked.Tree)
   case class ContextTrees(ctx : Context, trees : List[ast.linked.Tree] = List())
   def processList(ctx : Context, es : List[ast.syntax.Tree]) : ContextTrees = {
