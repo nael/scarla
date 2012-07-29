@@ -32,7 +32,7 @@ class CodeGenerator(val dest: OutputStream) {
   def freshName(s: String = ""): String = {
     "%" + freshLabel(s)
   }
-  
+
   def freshGlobal(s: String = ""): String = {
     "@" + freshLabel(s)
   }
@@ -40,7 +40,7 @@ class CodeGenerator(val dest: OutputStream) {
   def freshLabel(s: String) = {
     val i = varNames.getOrElse(s, 0)
     varNames(s) = i + 1
-    s + (if(i == 0 && s != "") "" else "_" + i.toString())
+    s + (if (i == 0 && s != "") "" else "_" + i.toString())
   }
 
   def assign(a: String, b: String) = {

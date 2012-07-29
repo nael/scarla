@@ -1,34 +1,45 @@
 package nasc
 
+trait TypeInfo {
+  def members: List[Symbol]
+
+  def vals = members filter { m => m.definition != null && m.definition.isInstanceOf[ValDef] }
+}
+
+case class Conversion(from: Symbol, to: Symbol, conv: Tree => Tree)
+
+object Glob {
+  var conversions = List[Conversion]()
+}
+
 class TypePhase extends Phase[Tree, Tree] {
 
   def name = "type"
-
-  val TUnit = new Symbol {
-    def name = "Unit"
-    var typeSymbol: Symbol = null
-    var isType = true
-    var definition: Def = null
+  def execute(t: Tree): Tree = {
+    val typedTree = Typer.typeTree(t)
+    Typer.check(typedTree)
+    typedTree
   }
+}
 
+object Typer {
   val NoType = new Symbol {
     def name = "<undefined>"
     var typeSymbol: Symbol = null
     var isType = true
     var definition: Def = null
+
+    typeInfo = new TypeInfo { def members = List() }
   }
 
-  class TypeDefCollector extends TreeTraverse {
-    var typeDefs: Set[TypeDef] = Set()
-    val doTraverse: PartialFunction[Tree, Unit] = {
-      case td: TypeDef => { typeDefs += td }
-    }
-  }
+  def typeTree(t: Tree): Tree = {
+    t transform { case d: TypeDef => makeThis(d) }
+    val typeDefs = t collect { case d: TypeDef => d }
+    populateTypeInfos(typeDefs)
 
-  def collectTypeDefs(t: Tree) = {
-    val c = new TypeDefCollector()
-    c.traverse(t)
-    c.typeDefs
+    val typer = new TypeTransform()
+    val typedTree = typer.transform(t)
+    t
   }
 
   // Takes a type tree and return all possible overloaded type symbols
@@ -56,6 +67,7 @@ class TypePhase extends Phase[Tree, Tree] {
                     var isType = true
                     var definition: Def = s.definition
                     typeVars = typeEnv
+                    typeInfo = s.typeInfo
                   }
 
                   s.derivedSymbols ::= newSym
@@ -82,12 +94,19 @@ class TypePhase extends Phase[Tree, Tree] {
     Utils.assert(tree.typed && to.isType)
     println("Trying conversion " + to + " -> " + tree.typeSymbol + " --- " + tree)
     if (tree.typeSymbol == to) return Some(tree)
-    else None
+    else {
+      Glob.conversions find { x => x.from == tree.typeSymbol && x.to == to } map { conv =>
+        conv.conv(tree)
+      }
+    }
   }
 
-  class Typer extends TreeTransform {
+  class TypeTransform extends TreeTransform {
     val doTransform: PartialFunction[Tree, Tree] = {
-
+      case s: Sym if s.symbol.typed => {
+        s.typeSymbol = s.symbol.typeSymbol
+        s
+      }
       case s: Sym if !s.typed => {
         s.typeSymbol = s.symbol.definition match {
           case vd: ValDef => {
@@ -99,24 +118,50 @@ class TypePhase extends Phase[Tree, Tree] {
           case dd: DefDef => {
             val ret = typeTreeSymbol(dd.returnTypeTree)
             val a = dd.arguments map { arg => typeTreeSymbol(arg.typeTree) }
-            typeTreeSymbol(new Apply(new Sym(Builtin.Functions(a.size - 1).symbol), a.map {new Sym(_)} :+ new Sym(ret)))
+            typeTreeSymbol(new Apply(new Sym(Builtin.Functions(a.size).symbol), a.map { new Sym(_) } :+ new Sym(ret)))
           }
           case td: TypeDef => {
             NoType
           }
           case _ => null
         }
-        if (s.symbol.typeSymbol == null) {
+
+        if (s.typed)
           s.symbol.typeSymbol = s.typeSymbol
-        } else {
-          Utils.assert(s.symbol.typeSymbol == s.typeSymbol)
-        }
         s
+      }
+
+      case sel: Select if !sel.typed => {
+        if (sel.from.typed) {
+          val ty = sel.from.typeSymbol.typeInfo
+          println("SS " + sel.from.typeSymbol + " / " + sel.from.typeSymbol.typeInfo)
+          ty.members find { _.name == sel.memberName.name } match {
+            case Some(member) => {
+              sel.memberName = transform(new Sym(member))
+              sel.typeSymbol = sel.memberName.typeSymbol
+              sel
+            }
+            case None => sel
+          } // Todo overloads ...
+        } else sel
+      }
+
+      case a: Assign if !a.typed => {
+        if (a.dest.typed && a.value.typed) {
+          convert(a.value, a.dest.typeSymbol) match {
+            case Some(v) => {
+              a.value = v
+              a.typeSymbol = Builtin.Unit.symbol
+            }
+            case _ => ()
+          }
+          a
+        } else a
       }
 
       case b: Block if !b.typed => {
         b.typeSymbol =
-          if (b.children.isEmpty) TUnit
+          if (b.children.isEmpty) Builtin.Unit.symbol
           else if (b.children.last.typed) b.children.last.typeSymbol
           else null
         b
@@ -131,23 +176,25 @@ class TypePhase extends Phase[Tree, Tree] {
                 case None => ()
                 case Some(convertedV) => {
                   vd.value = Some(convertedV)
-                  vd.typeSymbol = TUnit
+                  vd.typeSymbol = Builtin.Unit.symbol
                 }
               }
             }
           }
           case _ => {
-            d.typeSymbol = TUnit;
+            d.typeSymbol = Builtin.Unit.symbol
           }
         }
         d
       }
 
-      case s: Struct if !s.typed => { s.typeSymbol = NoType; s }
+      case s: Struct if !s.typed => {
+        s.typeSymbol = NoType; s
+      }
       case l: Literal[_] if !l.typed => {
         l.typeSymbol = l.value match {
           case i: Int => Builtin.Int.symbol
-          case _ => Utils.error("Unknown literla type : " + l.value.getClass)
+          case _ => Utils.error("Unknown literal type : " + l.value.getClass)
         }
         l
       }
@@ -159,7 +206,7 @@ class TypePhase extends Phase[Tree, Tree] {
             if (fArgTypes.size != a.arguments.size) Utils.error("Wrong argument count")
             val args = (fArgTypes zip a.arguments) map { case (ty, arg) => convert(arg, ty) }
             if (args.contains(None)) Utils.error("Wrong arg type")
-            
+
             a.arguments = args map { _.get }
             a.typeSymbol = Builtin.functionReturnType(a.function.typeSymbol)
 
@@ -170,29 +217,93 @@ class TypePhase extends Phase[Tree, Tree] {
       case t => t
     }
   }
-  import IMP._
-  def execute(t: Tree): Tree = {
-    val typeDefs = collectTypeDefs(t)
-    val typer = new Typer()
-    val typedTree = typer.transform(t)
 
-    val untyped = typedTree filter { !_.typed }
-    println("Untyped : ")
-    println(untyped.map(_.getClass.toString))
-    if (!untyped.isEmpty) Utils.error("Incorrect program, aborting")
+  // TODO here linearization of types & ... for now it just proceed in order and can fail (horribly)
+  def populateTypeInfos(tds: List[TypeDef]) = {
+    tds foreach { td =>
+      val ts = typeTreeSymbol(td.typeName)
+      td.value foreach {
+        case st: Struct => {
+          val m = st.content.children collect {
+            case vd: ValDef => vd.valName.symbol
+            case dd: DefDef => dd.defName.symbol
+          }
+          ts.typeInfo = new TypeInfo { def members = m.toList }
+        }
+        case s: Sym => { Utils.assert(s.symbol.typeInfo != null); ts.typeInfo = s.symbol.typeInfo }
+        case x => println("No typeinfo for " + x)
+      }
+      ts.typeSymbol = NoType
+    }
+  }
 
-    val syms = typedTree collect { case x if x.hasSymbol => List(x.symbol) }
-    syms.foreach { sym =>
+  def makeThis(td: TypeDef): Tree = {
+    td.value match {
+      case Some(st: Struct) => {
+        val ts = typeTreeSymbol(td.typeName)
+        if (td.hasAttr[attributes.Move]) {
+          st.thisTree.symbol.typeSymbol = ts
+          td
+        } else {
+          val ptrSym = new Symbol {
+            def name = td.typeName.name + "Ptr"
+            var typeSymbol: Symbol = null
+            var isType = true
+            var definition: Def = null
+          }
+          val ptrTd = new TypeDef(new Sym(ptrSym), List(), Some(new Sym(ts)))
+          ptrSym.definition = ptrTd
+          ptrTd.attr += attributes.Move()
+          st.thisTree.symbol.typeSymbol = ptrSym
+          new Block(List(ptrTd, td))
+        }
+      }
+      case _ => td
+    }
+  }
+
+  def check(t: Tree): Unit = {
+    var ok = true
+    val untyped = t filter { !_.typed }
+
+    if (!untyped.isEmpty) {
+      println("Untyped trees : " + untyped.map(_.getClass.toString))
+      ok = false
+    } else {
+      println("Whole tree is typed !")
+    }
+
+    val syms = (t collect { case x if x.hasSymbol => x.symbol }) ++ (t collect { case x if x.typed => x.typeSymbol })
+    syms.toSet.foreach { sym: Symbol =>
       if (sym.isType) {
+        if (sym.typeInfo == null) {
+          println("No type info on " + sym)
+          ok = false
+        }
       } else {
         if (!sym.typed) {
           println("Untyped symbol : " + sym + " : " + sym.typeSymbol)
+          ok = false
         }
       }
     }
 
-    typedTree
+    val failed = t collect { case s: Sym if s.typed && s.typeSymbol != s.symbol.typeSymbol => s }
+    if (!failed.isEmpty) {
+      println("Bad symbols : ")
+      failed.toSet foreach { s: Sym =>
+        println(s.symbol + " : " + s.typeSymbol + " != " + s.symbol.typeSymbol)
+      }
+      ok = false
+    }
+
+    if (!ok) {
+      println("++++++++++++++++++++++++++++++++++++++++++++++")
+      println(t)
+      Utils.error("Typing failed")
+    }
   }
+
 }
 
 /*object Typer {
@@ -417,4 +528,4 @@ class TypePhase extends Phase[CompilationUnit, CompilationUnit] {
   }
 
 }
-*/
+*/ 

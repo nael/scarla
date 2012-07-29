@@ -1,11 +1,11 @@
 package nasc
 
-trait TreeAttribute {
-  
-}
+trait TreeAttribute
 
 object attributes {
   case class Native(nativeName: String) extends TreeAttribute
+  case class Heap extends TreeAttribute
+  case class Move extends TreeAttribute
 }
 
 trait Tree {
@@ -15,23 +15,27 @@ trait Tree {
   def symbol: Symbol = Utils.error("No symbol in " + this)
   def symbol_=(x: Symbol): Unit = Utils.error("Cannot put symbol into " + this)
 
+  def name: String = Utils.error("No name")
+
   var _typeSymbol: Symbol = null
   def typeSymbol = if (typed) _typeSymbol else Utils.error("No type in " + this)
   def typeSymbol_=(o: Symbol) = { _typeSymbol = o }
   def typed = _typeSymbol != null
-  
-  var attr : Set[TreeAttribute] = Set()
+
+  var attr: Set[TreeAttribute] = Set()
+  def hasAttr[T] = !attr.find({ x: TreeAttribute => x.isInstanceOf[T] }).isEmpty
 
   def traverse(f: PartialFunction[Tree, Unit]): Unit = new TreeTraverse { val doTraverse = f } traverse this
-  def collect[T](f: PartialFunction[Tree, Iterable[T]]): List[T] = {
+  def transform(f: PartialFunction[Tree, Tree]): Tree = new TreeTransform { val doTransform = f } transform this
+  def collect[T](f: PartialFunction[Tree, T]): List[T] = {
     val collector = new TreeTraverse {
       var res = List[T]()
-      val doTraverse = f andThen { x => res ++= x }
+      val doTraverse = f andThen { x => res ::= x }
     }
     collector.traverse(this)
     collector.res
   }
-  def filterPartial(f: PartialFunction[Tree, Boolean]): List[Tree] = collect { case t if f.isDefinedAt(t) && f(t) => List(t) }
+  def filterPartial(f: PartialFunction[Tree, Boolean]): List[Tree] = collect { case t if f.isDefinedAt(t) && f(t) => t }
   def filter(f: Tree => Boolean): List[Tree] = {
     f match {
       case pf: PartialFunction[Tree, Boolean] => filterPartial(pf)
@@ -68,8 +72,20 @@ class TypeDef(var typeName: Tree, var typeVars: Iterable[Tree], var value: Optio
 
 class DefDef(var defName: Tree, var arguments: List[ArgDef], var returnTypeTree: Tree, var body: Option[Tree]) extends Template with Def {
   override def children = (super.children :+ defName) ++ body.toList
-  
-  override def toString = "def " + defName.toString + "(" + Utils.repsep(arguments map {_.toString}) + ")" + (body map { " = " + _.toString} getOrElse "")
+
+  override def toString = "def " + defName.toString + "(" + Utils.repsep(arguments map { _.toString }) + ")" + (body map { " = " + _.toString } getOrElse "")
+}
+
+class Select(var from: Tree, var memberName: Tree) extends Tree {
+  def children = List(from, memberName)
+
+  override def toString = from.toString + "." + memberName.toString
+}
+
+class Assign(var dest: Tree, var value: Tree) extends Tree {
+  def children = List(dest, value)
+
+  override def toString = dest.toString + " = " + value.toString
 }
 
 trait Template extends Tree {
@@ -78,18 +94,27 @@ trait Template extends Tree {
 }
 
 class Struct(var arguments: List[ArgDef], var content: Tree) extends Template {
-  override def children = super.children :+ content
+  var thisTree: Tree = new Name("this", false)
+
+  override def children = super.children :+ thisTree :+ content
 
   override def toString = "struct(" + Utils.repsep(arguments.map(_.toString)) + ") " + content.toString
 }
 
 object Builtin {
-  case class Ty(name: String, tv: Iterable[Symbol] = List()) {
+  case class Ty(name: String, ti: TypeInfo, tv: Iterable[Symbol] = List()) {
     var symbol: Symbol = null
   }
-  val Int = Ty("Int")
 
-  val Unit = Ty("Unit")
+  val Int = Ty("Int", new TypeInfo { def members = List() })
+
+  val Unit = Ty("Unit", new TypeInfo { def members = List() })
+
+  val Functions = (0 to 7) map { i =>
+    Ty("Function",
+      new TypeInfo { def members = List() },
+      ((1 to i) map { j => makeTypeVar("Arg" + j) }) :+ makeTypeVar("Ret"))
+  }
 
   def makeTypeVar(s: String): Symbol = {
     new Symbol {
@@ -97,15 +122,13 @@ object Builtin {
       var typeSymbol: Symbol = null
       var isType = true
       var definition: Def = null
+      typeInfo = new TypeInfo { def members = List() }
     }
   }
-  
-  def functionReturnType(x: Symbol): Symbol = { Utils.assert(isFunction(x)); x.typeVars.last._2}
+
+  def functionReturnType(x: Symbol): Symbol = { Utils.assert(isFunction(x)); x.typeVars.last._2 }
   def functionArgTypes(x: Symbol): List[Symbol] = { Utils.assert(isFunction(x)); x.typeVars.dropRight(1) map { _._2 } toList }
-  def isFunction(x : Symbol): Boolean = Functions exists {_.symbol.derivedSymbols contains x}
-  val Functions = (1 to 7) map { i =>
-    Ty("Function", ((1 to i) map { j => makeTypeVar("Arg" + j) }) :+ makeTypeVar("Ret"))
-  } 
+  def isFunction(x: Symbol): Boolean = Functions exists { _.symbol.derivedSymbols contains x }
 
   val typeDefs = List(Int, Unit) ++ Functions map makeDef
 
@@ -115,6 +138,7 @@ object Builtin {
       var typeSymbol: Symbol = null
       var isType = true
       var definition: Def = null
+      typeInfo = ty.ti
     }
     val d = new TypeDef(new Sym(s), ty.tv map { new Sym(_) }, None)
     s.definition = d
@@ -133,23 +157,24 @@ class Literal[T](var value: T) extends Tree {
   override def toString = "[lit:" + value.toString + "]"
 }
 
-class Name(val name: String, val isTypeName: Boolean) extends Tree {
+class Name(override val name: String, val isTypeName: Boolean) extends Tree {
   override def toString = name + "?"
 
   def children = List()
 }
 class Sym(var symbols: List[Symbol]) extends Tree {
   Utils.assert(!symbols.isEmpty)
-  
+
   def this(s: Symbol) = { this(List(s)) }
-  
+
   def children = List()
   override def hasSymbol = true
   override def symbol = symbols.head
-  
+  override def name = symbol.name
+
   override def toString = if (symbol.isType) {
-    "<" + symbol + (if(symbols.size > 1) "+" else "") +">"
-  } else { "[" + symbol + " : " + (if (typed) typeSymbol else "?") + (if(symbols.size > 1) "+" else "") + "]" }
+    "<" + symbol + (if (symbols.size > 1) "+" else "") + ">"
+  } else { "[" + symbol + " : " + (if (typed) typeSymbol else "?") + (if (symbols.size > 1) "+" else "") + "]" }
 }
 
 trait TreeTraverse {
@@ -194,10 +219,19 @@ trait TreeTransform {
       }
       case s: Struct => {
         s.arguments = transformList(s.arguments).asInstanceOf[List[ArgDef]]
+        s.thisTree = transform(s.thisTree)
         s.content = transform(s.content)
       }
       case b: Block => {
         b.children = transformList(b.children)
+      }
+      case s: Select => {
+        s.from = transform(s.from)
+        s.memberName = transform(s.memberName)
+      }
+      case a: Assign => {
+        a.dest = transform(a.dest)
+        a.value = transform(a.value)
       }
       case _: Literal[_] => ()
       case _: Name => ()

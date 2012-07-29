@@ -11,9 +11,11 @@ trait SymbolStorage {
 }
 
 object SymbolStorage {
+
   case class None extends SymbolStorage {
     def genAccess(cg: CodeGenerator): String = Utils.error("Cant access None storage")
   }
+
   case class Raw(name: String) extends SymbolStorage {
     def genAccess(cg: CodeGenerator) = name
   }
@@ -26,25 +28,51 @@ object SymbolStorage {
     }
   }
   case class Index(index: Int) extends SymbolStorage {
-    def genAccess(cg: CodeGenerator): String = Utils.error("Cant access Index storage")
+    def genAccess(cg: CodeGenerator): String = Utils.error("Cant access Index storage without context")
   }
 }
 
 class CodeGenPhase extends Phase[Tree, String] {
   def name = "codegen"
 
-    def typeLayout(s: Symbol): String = {
-    	if(s == Builtin.Int.symbol) "i32"
-    	else if(s == Builtin.Unit.symbol) "void"
-    	else if(Builtin.isFunction(s)) {
-    	  typeLayout(Builtin.functionReturnType(s)) + "(" + (Builtin.functionArgTypes(s) map typeLayout mkString ", ") + ")*"
-    	} else { Utils.error("No layout for type " + s)}
-  	}
+  //var _typeLayoutCache = Map[Symbol, String]()
+  def typeName(s: Symbol): String = {
+    Utils.assert(s.isType)
+    s.storage match {
+      case SymbolStorage.Raw(x) => x
+      case _ => typeLayout(s)
+    }
+  }
+  def typeLayout(s: Symbol): String = {
+    Utils.assert(s.isType)
+    val layout =
+      if (s == Builtin.Int.symbol) "i32"
+      else if (s == Builtin.Unit.symbol) "void"
+      else if (Builtin.isFunction(s)) {
+        typeLayout(Builtin.functionReturnType(s)) + "(" + (Builtin.functionArgTypes(s) map typeName mkString ", ") + ")*"
+      } else s.definition match {
+        case td: TypeDef => td.value match {
+          case Some(st: Struct) => {
+            val vs = s.typeInfo.vals
+            "{" + (s.typeInfo.vals map { sym => typeName(sym.typeSymbol) } mkString ", ") + "}"
+          }
+          case _ => Utils.error("No layout for type " + s)
+        }
+        case _ => Utils.error("Trying to layout type defined at : " + s.definition)
+      }
+    layout + (if (s.definition.hasAttr[attributes.Move]) "*" else "")
+  }
 
   def execute(tree: Tree): String = {
     val os = new ByteArrayOutputStream()
     val cg = new CodeGenerator(os)
-    //decideStorage(cg, cu.root)
+
+    tree traverse { case td: TypeDef if td.value != None => td.typeName.symbol.storage = SymbolStorage.Raw(cg.freshName(td.typeName.symbol.uniqueName)) }
+    tree traverse {
+      case td: TypeDef if td.value != None =>
+        cg.writer.println(td.typeName.symbol.storage.asRaw.name + " = type " + typeLayout(td.typeName.symbol))
+    }
+
     cg.prelude()
     genDefs(cg, tree)
     cg.beginMain()
@@ -58,35 +86,35 @@ class CodeGenPhase extends Phase[Tree, String] {
     tree traverse {
 
       case dd: DefDef if !dd.body.isEmpty => {
+        println("Codegen fun " + dd.defName.name)
+
         val fun = dd.defName.symbol
         val llvmFunName = cg.freshGlobal(fun.uniqueName)
         val args = dd.arguments map { _.argName.symbol }
         val llvmArgValNames = args map { arg => cg.freshName(arg.uniqueName + "_arg") }
         val llvmArgNames = args map { arg => cg.freshName(arg.uniqueName) }
 
-        println("Fun ts :" + fun.typeSymbol)
-
         val argTypes = Builtin.functionArgTypes(fun.typeSymbol)
         val retType = Builtin.functionReturnType(fun.typeSymbol)
 
         fun.storage = SymbolStorage.Raw(llvmFunName)
-        args zip llvmArgNames zip argTypes foreach { case ((arg, llvmArgName), argType) => arg.storage = SymbolStorage.Ptr(llvmArgName, typeLayout(argType)) }
+        args zip llvmArgNames zip argTypes foreach { case ((arg, llvmArgName), argType) => arg.storage = SymbolStorage.Ptr(llvmArgName, typeName(argType)) }
 
-        val argString = argTypes zip llvmArgValNames map { case (argType, llvmArgValName) => typeLayout(argType) + " " + llvmArgValName } mkString ", "
+        val argString = argTypes zip llvmArgValNames map { case (argType, llvmArgValName) => typeName(argType) + " " + llvmArgValName } mkString ", "
 
-        cg.beginFunction(typeLayout(retType), llvmFunName, argString)
+        cg.beginFunction(typeName(retType), llvmFunName, argString)
 
         llvmArgNames zip llvmArgValNames zip argTypes foreach {
           case ((llvmArgName, llvmArgValName), argType) =>
-            cg.allocatePtr(llvmArgName, typeLayout(argType))
-            cg.store(typeLayout(argType) + "* " + llvmArgName, typeLayout(argType) + " " + llvmArgValName)
+            cg.allocatePtr(llvmArgName, typeName(argType))
+            cg.store(typeName(argType) + "* " + llvmArgName, typeName(argType) + " " + llvmArgValName)
         }
 
         val res = genTree(cg, dd.body.get)
         if (retType == Builtin.Unit.symbol)
           cg.writer.println("ret void")
         else {
-          cg.writer.println("ret " + typeLayout(retType) + " " + res)
+          cg.writer.println("ret " + typeName(retType) + " " + res)
         }
         cg.endFunction()
       }
@@ -97,6 +125,46 @@ class CodeGenPhase extends Phase[Tree, String] {
         dd.defName.symbol.storage = SymbolStorage.Raw("@" + nat.head)
       }
 
+      case td: TypeDef => {
+        td.value match {
+          case Some(s: Struct) => {
+            td.typeName.symbol.typeInfo.vals.zipWithIndex foreach {
+              case (x, i) => {
+                println("Choosing index(" + i + ") for " + x)
+                x.storage = SymbolStorage.Index(i)
+              }
+            }
+          }
+          case _ => ()
+        }
+      }
+
+    }
+  }
+
+  def genPointer(cg: CodeGenerator, tree: Tree): String = {
+    tree match {
+      case s: Sym => s.symbol.storage.asPtr.name
+      case sel: Select => {
+
+        val mSym = sel.memberName.symbol
+        val res = cg.freshName()
+        mSym.storage match {
+          case SymbolStorage.Index(i) => {
+            val fromType = typeName(sel.from.typeSymbol)
+            val from = if (sel.from.typeSymbol.definition.hasAttr[attributes.Move]) {
+              fromType + " " + genTree(cg, sel.from)
+            } else {
+              fromType + "* " + genPointer(cg, sel.from)
+            }
+            cg.writer.println(res + " = getelementptr " + from + ", i32 0,  i32 " + i)
+            res
+
+          }
+          case _ => Utils.error("q2sdqsd")
+        }
+      }
+      case _ => Utils.error("Cannot generate pointer to " + tree)
     }
   }
 
@@ -105,13 +173,13 @@ class CodeGenPhase extends Phase[Tree, String] {
 
       case b: Block => b.children map { t => genTree(cg, t) } last
 
-      case s: Sym => s.symbol.storage.genAccess(cg)
+      case s: Sym => { println("Gen$ " + s); s.symbol.storage.genAccess(cg) }
 
       case a: Apply => {
         val fTy = a.function.typeSymbol
         val retTy = fTy.typeVars.last._2
-        val f = typeLayout(retTy) + " " + genTree(cg, a.function)
-        val args = a.arguments map { arg => typeLayout(arg.typeSymbol) + " " + genTree(cg, arg) }
+        val f = typeName(retTy) + " " + genTree(cg, a.function)
+        val args = a.arguments map { arg => typeName(arg.typeSymbol) + " " + genTree(cg, arg) }
         if (retTy == Builtin.Unit.symbol) {
           cg.voidFunctionCall(f, args)
           "undef"
@@ -127,7 +195,7 @@ class CodeGenPhase extends Phase[Tree, String] {
         val sym = vd.valName.symbol
         if (sym.typeSymbol != Builtin.Unit) {
           val llvmName = cg.freshName(sym.uniqueName)
-          val llvmType = typeLayout(sym.typeSymbol)
+          val llvmType = typeName(sym.typeSymbol)
           sym.storage = SymbolStorage.Ptr(llvmName, llvmType)
           cg.allocatePtr(llvmName, llvmType)
           vd.value match {
@@ -138,6 +206,22 @@ class CodeGenPhase extends Phase[Tree, String] {
             }
           }
         } else { vd.valName.symbol.storage = SymbolStorage.None() }
+        "undef"
+      }
+
+      case sel: Select => {
+        //TODO handle sel.from is NOT an lvalue
+        val ptr = genPointer(cg, sel)
+        val res = cg.freshName()
+        cg.writer.println(res + " = load " + typeName(sel.memberName.typeSymbol) + "* " + ptr)
+        res
+      }
+
+      case a: Assign => {
+        val v = genTree(cg, a.value)
+        val ptr = genPointer(cg, a.dest)
+        val vty = typeName(a.value.typeSymbol)
+        cg.store(vty + "* " + ptr, vty + " " + v)
         "undef"
       }
 
@@ -453,4 +537,4 @@ class CodeGenPhase extends Phase[CompilationUnit, String] {
     case Literals.String(s) => Utils.error("No string lit yet")
   }
 
-}*/
+}*/ 

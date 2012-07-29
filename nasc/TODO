@@ -1,9 +1,6 @@
-REF:
-- IdSymbol/TypeSymbol crappy (en profiter pour faire un replaceBy propre)
-- la dualité type/typesymbol est naze, faire un dessin
-- virer baretype/concretetype
+BUGS:
 
-- renommer Statement en Node/Tree ou un truc
+- verfier les types cycliques pour les struct (fait plante llvm)
 
 Petit :
 - faire en sorte de generer de l'ir avec le pus de type nommés possible

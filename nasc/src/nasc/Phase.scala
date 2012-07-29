@@ -4,16 +4,16 @@ trait Phase[In, Out] extends AbstractPhase[In, Out] {
   def name: String
   def execute(input: In): Out
   def process(input: In): Out = {
-    if(G.verbose) println("Phase " + name + " ==============")
+    if (G.verbose) println("Phase " + name + " ==============")
     val res = execute(input)
-/*    G.pp.beginPhase(name)
+    /*    G.pp.beginPhase(name)
     res match {
       case cu : CompilationUnit => G.pp.prettyPrint(cu.root)
       case s : String => G.pp.print(s)
       case _ => ()
     }
     G.pp.endPhase()*/
-    if(G.verbose) println(res)
+    if (G.verbose) println(res)
     return res
   }
 }

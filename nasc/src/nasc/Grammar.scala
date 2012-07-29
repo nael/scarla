@@ -31,7 +31,12 @@ object Grammar extends RegexParsers {
     ("value" ^^ { _ => true } | "" ^^ { _ => false }) ~ "class" ~ id ~ optArgList /*~ optExtends */ ~ block ^^
       {
         case isValue ~ _ ~ structName ~ ctorArgs /*~ traits*/ ~ body => {
-          new TypeDef(new Name(structName, true), List(), Some(new Struct(ctorArgs, body)))
+          val td = new TypeDef(new Name(structName, true), List(), Some(new Struct(ctorArgs, body)))
+          if (!isValue) {
+            td.attr += attributes.Heap()
+            td.attr += attributes.Move()
+          }
+          td
         }
       }
 
@@ -43,28 +48,35 @@ object Grammar extends RegexParsers {
 
   def optArgList = (("(" ~> funArgList <~ ")")?) ^^ { case None => List() case Some(x) => x }
   def funDef = "def" ~ (id | operators) ~ "(" ~ funArgList ~ ")" ~ ":" ~ typeExpr ~ (("=" ~ expr)?) ^^
-  {
-    case _ ~ name ~ _ ~ args ~ _ ~ _ ~ retType ~ Some(_ ~ body) =>
-      new DefDef(new Name(name, false), args, retType, Some(body))
-    case _ ~ name ~ _ ~ args ~ _ ~ _ ~ retType ~ None =>
-      new DefDef(new Name(name, false), args, retType, None)
-  }
+    {
+      case _ ~ name ~ _ ~ args ~ _ ~ _ ~ retType ~ Some(_ ~ body) =>
+        new DefDef(new Name(name, false), args, retType, Some(body))
+      case _ ~ name ~ _ ~ args ~ _ ~ _ ~ retType ~ None =>
+        new DefDef(new Name(name, false), args, retType, None)
+    }
 
-  def stmt = ( (("native(" ~ id ~ ")")?) ~ funDef ^^ {case None~d => d case Some(_ ~ nid ~ _) ~ d => {d.attr += attributes.Native(nid); d}}
-    |  valDef
+  def stmt = ((("native(" ~ id ~ ")")?) ~ funDef ^^ { case None ~ d => d case Some(_ ~ nid ~ _) ~ d => { d.attr += attributes.Native(nid); d } }
+    | valDef
     | structDef
     //| traitDef
     | expr)
   def blockSep = (";" | "\n")
   def block = ("{" ~> (blockSep*) ~> repsep(stmt, blockSep+) <~ (blockSep*) <~ "}") ^^ { x => new Block(x) }
-  def lvalue: Parser[Tree] = (
-    /*("*" ~ lvalue ^^ { case _ ~ e => PtrDeref(e) })
-    | ((id ^^ { Id(_) }) | atom) ~ "." ~ memberAccess ^^ { case t ~ _ ~ i => i(t) }
 
-    | */ (id ^^ { x => new Name(x, false) }))
+  def qualId = id ~ (("." ~> id)*) ^^ { case i ~ Nil => List(i) case i ~ is => i :: is }
+  def memberAccess: Parser[Tree => Tree] = qualId ^^ { q =>
+    { e: Tree =>
+      (q.foldLeft(e) { (b, a) => new Select(b, new Name(a, false)) }): Tree
+    }
+  }
+
+  def lvalue: Parser[Tree] = (
+    ((id ^^ { new Name(_, false) }) | atom) ~ "." ~ memberAccess ^^ { case t ~ _ ~ i => i(t) }
+
+    | (id ^^ { x => new Name(x, false) }))
   def expr: Parser[Tree] = (
     block
-    // | lvalue ~ "=" ~ expr ^^ { case lv ~ _ ~ value => Assign(lv, value) }
+    | lvalue ~ "=" ~ expr ^^ { case lv ~ _ ~ value => new Assign(lv, value) }
     // | "if" ~ "(" ~ expr ~ ")" ~ expr ~ "else" ~ expr ^^ { case _ ~ _ ~ cond ~ _ ~ tb ~ _ ~ fb => If(cond, tb, fb) }
     //| "if" ~ "(" ~ expr ~ ")" ~ expr ^^ { case _ ~ _ ~ cond ~ _ ~ tb => If(cond, tb, Block()) }
     //| "while" ~ "(" ~ expr ~ ")" ~ expr ^^ { case _ ~ _ ~ cond ~ _ ~ body => While(cond, body) }

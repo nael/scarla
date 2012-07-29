@@ -8,7 +8,7 @@ case class Context(values: Map[String, List[Symbol]], next: Option[Context]) {
   def getFirst(name: String, isType: Boolean): Option[Symbol] =
     values.getOrElse(name, List()) filter { _.isType == isType } match { case List() => next.flatMap(_.getFirst(name, isType)) case id :: ids => Some(id) }
   def getAll(name: String, isType: Boolean): List[Symbol] =
-    (values.getOrElse(name, List()) filter { _.isType == isType }) ++ (next match { case None => List() case Some(c) => c.getAll(name, isType)})
+    (values.getOrElse(name, List()) filter { _.isType == isType }) ++ (next match { case None => List() case Some(c) => c.getAll(name, isType) })
   def contains(name: String) = values.contains(name) && (!values(name).isEmpty)
   def chain(o: Context): Context = next match { case None => Context(values, Some(o)) case Some(c) => Context(values, Some(c.chain(o))) }
   override def toString = "{\n" + (values.map { case (k, v) => "\t" + k + " -> " + v + "\n" }).mkString + "next => " + next.getOrElse("{}").toString + "\n}"
@@ -30,7 +30,7 @@ class SymPhase extends Phase[Tree, Tree] {
     val doTransform: PartialFunction[Tree, Tree] = {
       case name: Name => {
         val syms = ctx.getAll(name.name, name.isTypeName)
-        if(syms.isEmpty) name
+        if (syms.isEmpty) name
         else new Sym(syms)
       }
     }
@@ -42,7 +42,7 @@ class SymPhase extends Phase[Tree, Tree] {
         case _ => None
       }
 
-      def add(nameTree: Tree, sym: String => Symbol):Context = {
+      def add(nameTree: Tree, sym: String => Symbol): Context = {
         nameTree match {
           case n: Name => ctx.add(n.name, sym(n.name))
           case s: Sym => ctx.add(s.symbol.name, s.symbol)
@@ -81,6 +81,14 @@ class SymPhase extends Phase[Tree, Tree] {
             var typeSymbol: Symbol = null
             var isType = false
             var definition: Def = dd
+          })
+        }
+        case st: Struct => {
+          add(st.thisTree, thisName => new Symbol {
+            def name = thisName
+            var typeSymbol: Symbol = null
+            var isType = false
+            var definition: Def = null
           })
         }
         case _ => ctx
