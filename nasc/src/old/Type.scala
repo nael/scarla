@@ -17,7 +17,7 @@ trait Type {
   
   def isRef = attributes.contains(Types.Attributes.Ref)
 
-  override def toString = attributes.map(_.toString() + " ").toList.mkString(" ") + typeSymbol.toString()
+  override def toString = attributes.map(_.toString() + " ").toSeq.mkString(" ") + typeSymbol.toString()
 }
 
 trait BareType extends Type {
@@ -36,18 +36,18 @@ trait SimpleType extends ConcreteType with BareType {
 
 trait TypeFunctor extends ConcreteType with BareType {
   def llvmType = Utils.error("Cannot compile functors")
-  def instanciate(symbol: TypeSymbol, args: List[Type]): Type
-  def instanciate(args: List[Type]): Type
+  def instanciate(symbol: TypeSymbol, args: Seq[Type]): Type
+  def instanciate(args: Seq[Type]): Type
 }
 
 trait SimpleTypeFunctor extends TypeFunctor {
 
-  private var instances = Map[List[Type], Type]()
+  private var instances = Map[Seq[Type], Type]()
 
   def memberType(m: String) = None
   def memberSymbol(m: String) = None
   def attributes = Types.Attributes.ValueSet()
-  def instanciate(arguments: List[Type]) = {
+  def instanciate(arguments: Seq[Type]) = {
     val args = arguments.map(_.concreteType)
     instances.get(args) match {
       case None => {
@@ -81,7 +81,7 @@ object Types {
 
   class Trait(
     val typeSymbol: TypeSymbol,
-    val fields: List[Aggregate.Element]) extends ConcreteType with BareType {
+    val fields: Seq[Aggregate.Element]) extends ConcreteType with BareType {
     
     val name = "trait " + typeSymbol
     def llvmType = "i1"
@@ -103,8 +103,8 @@ object Types {
   
   class Struct(
     val typeSymbol: TypeSymbol,
-    val traits: List[Trait],
-    val fields: List[Aggregate.Element],
+    val traits: Seq[Trait],
+    val fields: Seq[Aggregate.Element],
     val modifiers: ClassMods.ValueSet = ClassMods.ValueSet()) extends ConcreteType with BareType {
 	  
     

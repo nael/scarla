@@ -82,21 +82,107 @@ object NaSc {
       native(plus) def +(x: Int, y: Int): Int
       native(printInt) def printInt(x: Int): Unit
       
-      value class A {
-         val a : Int
-
-         def in(): Unit = {
-            this.a = 40
-         }
-         def p(u:Int): Unit = {
-           printInt(this.a)
-         }
+      class A(z: Int) {
+         val a : Int = 666
+         def k(): Unit = { a = a + 1 }
+         def p(): Unit = { printInt(a) }
       }
+      def f(): Unit = {
+         val x: A
+    		x.a = 666
+             val q: A
+    		q.a = 666
 
-      val x:A
-      x.in()
-      x.p(1)
+             val y: A
+    		y.a = 666
+
+             val z: A
+    		z.a = 666
+
+      }
+      f()
     }"""
+  val p9 = """{
+
+class LL(v : Int) {
+          val x : Int = v
+          var next : LL
+          var hasNext : Int = 0
+}
+
+def printSeq(l : LL) : Int = {
+          printInt(l.x)
+          if(l.hasNext == 1) { printSeq(l.next); 0} else { 0 }
+}
+def ints(n : Int) : LL = {
+          if(n == 0) LL(0) else {
+          	val  head : LL = LL(n)
+          	head.next = ints(n-1)
+          	head.hasNext = 1
+          	head
+          }
+}
+def fsum(l : LL) : Int = {
+          if(l.hasNext == 0) l.x else {
+          	l.x + fsum(l.next)
+          }
+}
+def isum(l : LL) : Int = {
+          var cur : LL = l
+          var tot : Int = cur.x
+          while(cur.hasNext == 1) {
+             cur = cur.next
+             tot = tot + cur.x
+          }
+          tot
+}
+def isIn(l : LL, v : Int) : Int = {
+         val u : Int = if(l.hasNext == 1) isIn(l.next, v) else 0
+         if(l.x == v) 1 else {
+          u
+         }
+}
+def addMults(l : LL, v : Int, max : Int) : LL = {
+          var i : Int = 0
+          var head : LL = l
+          while(i <= max) {
+          	i = i + v
+            val newHead : LL = LL(i)
+            newHead.next = head
+            newHead.hasNext = 1
+            head = newHead
+          }
+          head
+}
+def sieve(n : Int) : LL = {
+        var primes : LL = LL(1)
+        var marked : LL = LL(1)
+        var i : Int = 1
+        while(i <= n) {
+          i = i + 1
+          if(isIn(marked, i) == 0) {
+            val nh : LL = LL(i)
+            nh.next = primes
+            nh.hasNext = 1
+            primes = nh
+            marked = addMults(marked, i, n)
+            0
+          } else { 0 }
+        }
+            primes
+}
+val lim : Int = 42
+val tot1 : Int = 2*fsum(ints(lim))
+val tot2 : Int = 2*isum(ints(lim))
+val tot3 : Int = lim*(lim + 1)
+printInt(tot1)
+printInt(tot2)
+printInt(tot3)
+val primes : LL = sieve(30)
+printSeq(primes)
+val ps : Int = fsum(primes)
+printInt(ps)
+  }"""
 
   val q1 = """
         native(plus) def +(x: Int, y: Int): Int
@@ -229,9 +315,9 @@ object NaSc {
              head.hasNext = 1
           }
         }
-        def printList(l : LL) : Unit = {
+        def printSeq(l : LL) : Unit = {
           printInt(l.x)
-          if(l.hasNext == 1) printList(l.next)
+          if(l.hasNext == 1) printSeq(l.next)
         }
         def ints(n : Int) : LL = {
            if(n == 0) LL(0)
@@ -239,9 +325,10 @@ object NaSc {
              ints(n-1).prepend(n)
            }
         }
-        printList(ints(5))
+        printSeq(ints(5))
   }"""
-  val p9 = """{
+
+  val xp9 = """{
 
 class LL(v : Int) {
           val x : Int = v
@@ -249,9 +336,9 @@ class LL(v : Int) {
           var hasNext : Int = 0
 }
 
-def printList(l : LL) : Int = {
+def printSeq(l : LL) : Int = {
           printInt(l.x)
-          if(l.hasNext == 1) { printList(l.next); 0} else { 0 }
+          if(l.hasNext == 1) { printSeq(l.next); 0} else { 0 }
 }
 def ints(n : Int) : LL = {
           if(n == 0) LL(0) else {
@@ -318,7 +405,7 @@ printInt(tot1)
 printInt(tot2)
 printInt(tot3)
 val primes : LL = sieve(30)
-printList(primes)
+printSeq(primes)
 val ps : Int = fsum(primes)
 printInt(ps)
   }"""

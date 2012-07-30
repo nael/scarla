@@ -2,8 +2,10 @@ BUGS:
 
 - verfier les types cycliques pour les struct (fait plante llvm)
 
+
+ordre: constructeur, control, primes, nice print \t ... (term), files + autotest, traits, object, user-def F[T] (erasure? spec?), modules
+
 Petit :
-- faire en sorte de generer de l'ir avec le pus de type nommés possible
 - sealed sur les case class qu'il faut
 #- remplacer les cg.writer par des trucs propres
 - constant pooling
@@ -23,8 +25,8 @@ Moyen :
 #- reflechir a passer aux arguments readonly par defaut et au choix "ref" ou "copy"
 #- generic (&efficient) tree browsing (find/fold/etc) + l'implementer dans les phase <== moitié fait
 #- Function overloading {
-   - ajouter dans Id un truc genre var possibleSymbols : List[Symbol]
-   - changer var symbol = null en def symbol = possibleSymbols match { List() => null, x::xs => x }
+   - ajouter dans Id un truc genre var possibleSymbols : Seq[Symbol]
+   - changer var symbol = null en def symbol = possibleSymbols match { Seq() => null, x::xs => x }
    - pendant le typage d'un appel de fonction regarder toute la stack du truc de gauche
 }
 - Regarder nocapture/nounwind/noalias

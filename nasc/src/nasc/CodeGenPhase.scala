@@ -43,6 +43,7 @@ class CodeGenPhase extends Phase[Tree, String] {
       case _ => typeLayout(s)
     }
   }
+
   def typeLayout(s: Symbol): String = {
     Utils.assert(s.isType)
     val layout =
@@ -56,6 +57,7 @@ class CodeGenPhase extends Phase[Tree, String] {
             val vs = s.typeInfo.vals
             "{" + (s.typeInfo.vals map { sym => typeName(sym.typeSymbol) } mkString ", ") + "}"
           }
+          case Some(uu: Sym) => typeLayout(uu.symbol)
           case _ => Utils.error("No layout for type " + s)
         }
         case _ => Utils.error("Trying to layout type defined at : " + s.definition)
@@ -168,6 +170,8 @@ class CodeGenPhase extends Phase[Tree, String] {
     }
   }
 
+  // Generates code to store the value carried by @tree in an llvm register which name is returned
+  // If @tree is of type @sym, the register will be typed typeName(@sym) in llvm
   def genTree(cg: CodeGenerator, tree: Tree): String = {
     tree match {
 
@@ -191,6 +195,21 @@ class CodeGenPhase extends Phase[Tree, String] {
 
       }
 
+      case n: New => {
+        Utils.assert(n.typeSymbol.definition.hasAttr[attributes.Move])
+        // TODO if heap generate malloc()
+        val sizeof0 = cg.freshName("sz")
+        val sizeof1 = cg.freshName("sz")
+        cg.writer.println(sizeof0 + " = getelementptr " + typeName(n.typeSymbol) + " null, i64 1")
+        cg.writer.println(sizeof1 + " = ptrtoint " + typeName(n.typeSymbol) + " " + sizeof0 + " to i64")
+        val nptr = cg.freshName()
+        cg.functionCall("i8* @malloc", Seq("i64 " + sizeof1), nptr)
+        //cg.voidFunctionCall("void @printInt", Seq("i32 " + sizeof1)) 
+        val v = cg.freshName()
+        cg.writer.println(v + " = bitcast i8* " + nptr + " to " + typeName(n.typeSymbol))
+        v
+      }
+
       case vd: ValDef => {
         val sym = vd.valName.symbol
         if (sym.typeSymbol != Builtin.Unit) {
@@ -207,6 +226,20 @@ class CodeGenPhase extends Phase[Tree, String] {
           }
         } else { vd.valName.symbol.storage = SymbolStorage.None() }
         "undef"
+      }
+
+      case ta: cast.TypeAttr => {
+        var v = ""
+        ta.add foreach {
+          case attributes.Move() => {
+            v = genPointer(cg, ta.tree)
+          }
+          case attr => Utils.error("Unsupported cast : +" + attr)
+        }
+        ta.remove foreach {
+          case attr => Utils.error("Unsupported cast : -" + attr)
+        }
+        v
       }
 
       case sel: Select => {
@@ -260,9 +293,9 @@ class CodeGenPhase extends Phase[CompilationUnit, String] {
   }
 
   def decideSymbolStorage(cg: CodeGenerator, sd: SymDef): Unit = {
-    val typeSymbols = sd.symbols.filter(_.isType).toList
+    val typeSymbols = sd.symbols.filter(_.isType).toSeq
     typeSymbols.foreach { ts => ts.storage = SymbolStorage.Raw("%" + ts.uniqueName) }
-    if (typeSymbols.length < sd.symbols.toList.length) {
+    if (typeSymbols.length < sd.symbols.toSeq.length) {
       sd match {
         case ed: ExternFunDef => ed.funSymbol.storage = SymbolStorage.Raw(ed.llvmName)
         case vd: ValDefinition => vd.valSymbol.storage = SymbolStorage.Ptr(cg.freshName(vd.valSymbol.name))
@@ -287,11 +320,11 @@ class CodeGenPhase extends Phase[CompilationUnit, String] {
     }
   }
 
-  def findDefs(tree: Tree): List[SymDef] = {
+  def findDefs(tree: Tree): Seq[SymDef] = {
     (tree match {
-      case sd: SymDef => List(sd)
-      case _ => List()
-    }) ++ tree.children.map(findDefs).flatten.toList
+      case sd: SymDef => Seq(sd)
+      case _ => Seq()
+    }) ++ tree.children.map(findDefs).flatten.toSeq
   }
 
   def genDef(cg: CodeGenerator, sd: SymDef) = {
@@ -372,8 +405,8 @@ class CodeGenPhase extends Phase[CompilationUnit, String] {
   def genExpr(cg: CodeGenerator, expr: Expr): String = {
     expr match {
       case IRValue(u) => u
-      case Block(List()) => "undef"
-      case Block(List(expr: Expr)) => genExpr(cg, expr)
+      case Block(Seq()) => "undef"
+      case Block(Seq(expr: Expr)) => genExpr(cg, expr)
       case Block(st :: es) => { genTree(cg, st); genExpr(cg, Block(es)) }
       case lit: Literal[_] => genLiteral(cg, lit)
       case vd: ValDefinition => {
@@ -433,7 +466,7 @@ class CodeGenPhase extends Phase[CompilationUnit, String] {
       }
       
       //TODO move this to a generic malloc[T]() when generics done
-      case Call(id: Id, List(sizeof, ptr : Id)) if id.symbol == Defs.malloc => {
+      case Call(id: Id, Seq(sizeof, ptr : Id)) if id.symbol == Defs.malloc => {
         val ptrV = ptr.symbol.storage.asPtr.name
         val sizeV = genExpr(cg, sizeof)
         val tmp = cg.freshName()

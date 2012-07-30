@@ -19,7 +19,7 @@ class LiftMethodsPhase extends Phase[Tree, Tree] {
             case td: TypeDef if td.value exists { _.isInstanceOf[Struct] } => {
               sel.memberName traverse { case t => t.typeSymbol = null }
               app.function = sel.memberName
-              app.arguments ::= sel.from
+              app.arguments :+= sel.from
               app.typeSymbol = null
               Typer.typeTree(app)
             }
@@ -31,10 +31,10 @@ class LiftMethodsPhase extends Phase[Tree, Tree] {
     }
   }
 
-  def extractStructMethods(s: Struct): (Tree, List[DefDef]) = {
+  def extractStructMethods(s: Struct): (Tree, Seq[DefDef]) = {
     val (methods, rest) = s.content.children partition { _.isInstanceOf[DefDef] }
-    s.content = Typer.typeTree(new Block(rest.toList))
-    (s, methods.toList map { _.asInstanceOf[DefDef] })
+    s.content = Typer.typeTree(new Block(rest.toSeq))
+    (s, methods.toSeq map { _.asInstanceOf[DefDef] })
   }
 
   def addArgument(thisS: Symbol)(d: DefDef): DefDef = {
@@ -45,12 +45,15 @@ class LiftMethodsPhase extends Phase[Tree, Tree] {
       var definition: Def = null
     }
     val argDef = new ArgDef(new Sym(argSym), new Sym(thisS.typeSymbol))
-    d.arguments ::= argDef
+    d.arguments :+= argDef
     argSym.definition = argDef
+    
     d.typeSymbol = null
     d.defName.typeSymbol = null
     d.defName.symbol.typeSymbol = null
+    
     Typer.typeTree(d)
+    // Change all references to $this in the method body to match the newly created argument symbol
     d transform {
       case s: Sym => {
         val nsym = s.symbols map { sym => if (sym == thisS) argSym else sym }
@@ -60,6 +63,18 @@ class LiftMethodsPhase extends Phase[Tree, Tree] {
           Utils.assert(ss.typeSymbol == s.typeSymbol)
           ss
         } else s
+      }
+    }
+    
+    // Wrap all accesses to members of the struct into a $this._
+    d.body = d.body.map {
+      _ transformExpr {
+        case s: Sym => {
+          println(thisS.typeSymbol.typeInfo.members)
+          if (thisS.typeSymbol.typeInfo.members contains s.symbol) {
+            Typer.typeTree(new Select(new Sym(argSym), s))
+          } else s
+        }
       }
     }
     d
@@ -73,7 +88,7 @@ class LiftMethodsPhase extends Phase[Tree, Tree] {
           td.value = Some(st)
           if (!methods.isEmpty) {
             val lifted = methods map addArgument(s.thisTree.symbol)
-            Typer.typeTree(new Block(td :: lifted))
+            Typer.typeTree(new Block(td +: lifted))
           } else td
         }
         case _ => td

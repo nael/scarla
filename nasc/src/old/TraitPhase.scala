@@ -21,8 +21,8 @@ class TraitPhase extends Phase[CompilationUnit, CompilationUnit] {
         val td = tr.symbol.definition.asInstanceOf[TraitDefinition]
         val vtable = ValDefinition("__vtable_" + td.typeSymbol.uniqueName, TypeId.fromSymbol(td.typeSymbol), None, true)
        // vtable.valSymbol = sd.vtableSymbols(tr.symbol)
-        List(vtable)
-        /*val vtableDef = vtable :: symTrans.foldLeft(List[Statement]()) {
+        Seq(vtable)
+        /*val vtableDef = vtable :: symTrans.foldLeft(Seq[Statement]()) {
           case (l, (k, v)) =>
             println("KV " + k + ", " + v)
             val vtableField = Select(Id.fromSymbol(vtable.valSymbol), k.name)
@@ -67,22 +67,22 @@ class TraitPhase extends Phase[CompilationUnit, CompilationUnit] {
             vd.declareSymbols()
             vd.valSymbol.ty = entryType
             virtualSymbolTranslation += fd.funSymbol -> vd.valSymbol
-            List(vd)
+            Seq(vd)
           }
-          case _ => List()
+          case _ => Seq()
         })
-      val vtableDef = StructDefinition(td.name + "__vtable", List(), List(), vtableBody, true)
+      val vtableDef = StructDefinition(td.name + "__vtable", Seq(), Seq(), vtableBody, true)
       Typer.typeTree(vtableDef)
 
       val vd1 = ValDefinition("ptr", TypeId.fromSymbol(Defs.types.Ptr.create(Defs.types.Byte).typeSymbol), None, true)
       vd1.declareSymbols()
       val vd2 = ValDefinition("vt", TypeId.fromSymbol(Defs.types.Ptr.create(vtableDef.typeSymbol.definedType).typeSymbol), None, true)
       vd2.declareSymbols()
-      val structBody = Block(List(
+      val structBody = Block(Seq(
         vd1,
         vd2))
-      val structDef = StructDefinition(td.name, List(), List(), structBody, true)
-      val defs = Typer.typed(Block(List(structDef, vtableDef)))
+      val structDef = StructDefinition(td.name, Seq(), Seq(), structBody, true)
+      val defs = Typer.typed(Block(Seq(structDef, vtableDef)))
       td.typeSymbol.replaceBy(structDef.typeSymbol)
       defs
     }
@@ -127,7 +127,7 @@ class TraitPhase extends Phase[CompilationUnit, CompilationUnit] {
                 }
               }
 
-              val newStruct = sd.copy(body = Block(ctd.children.toList ++ sd.body.content))
+              val newStruct = sd.copy(body = Block(ctd.children.toSeq ++ sd.body.content))
               sd.copyAttrs(newStruct.asInstanceOf[sd.type])
               //Typer.typed(newStruct).asInstanceOf[StructDefinition]
               newStruct

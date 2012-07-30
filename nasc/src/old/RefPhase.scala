@@ -52,7 +52,7 @@ class RefPhase extends Phase[CompilationUnit, CompilationUnit] {
     case _ => st
   }
 
-  def transformDef(refArgs: List[Symbol], st: Tree): Tree = st match {
+  def transformDef(refArgs: Seq[Symbol], st: Tree): Tree = st match {
     case id: Id if (refArgs.contains(id.symbol)) => {
       val pderef = PtrDeref(id)
       pderef.ty = id.ty

@@ -113,8 +113,8 @@ class PrettyPrinter {
   }
 
   def prettyPrint(x: Tree): Unit = x match {
-    case Block(List()) => out ++= bracket("{") + "()" + bracket("}")
-    case Block(List(y)) => prettyPrint(y)
+    case Block(Seq()) => out ++= bracket("{") + "()" + bracket("}")
+    case Block(Seq(y)) => prettyPrint(y)
     case Block(xs) => {
       out ++= bracket("{") + "<br/>"
       beginBlock()
@@ -156,7 +156,7 @@ class PrettyPrinter {
     case Call(f, args) => {
       prettyPrint(f)
       out ++= "("
-      prettyPrintList(args)
+      prettyPrintSeq(args)
       out ++= ")"
     }
     case Select(e, f) => {
@@ -207,14 +207,14 @@ class PrettyPrinter {
     case _ => { if (mustPrint(x)) out ++= "[" + x.getClass() + "]" else () }
   }
 
-  def printList[T](l: List[T])(f: T => Unit) = l match {
-    case List() => ()
+  def printSeq[T](l: Seq[T])(f: T => Unit) = l match {
+    case Seq() => ()
     case _ => f(l.reduce { (a1, a2) => f(a1); out ++= ", "; a2 })
   }
 
-  def prettyPrintList(l: List[Tree]) = printList(l)(prettyPrint)
+  def prettyPrintSeq(l: Seq[Tree]) = printSeq(l)(prettyPrint)
 
-  def prettyPrintArgs(args: List[Definition.Argument]) = printList(args) { arg => printSymbolOr(arg.symbol, arg.name); out ++= " : "; printTypeExpr(arg.typeExpr) }
+  def prettyPrintArgs(args: Seq[Definition.Argument]) = printSeq(args) { arg => printSymbolOr(arg.symbol, arg.name); out ++= " : "; printTypeExpr(arg.typeExpr) }
 
   def print(s: String) = out ++= s.replace("\n", "<br/>")
 

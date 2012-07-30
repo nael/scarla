@@ -17,9 +17,9 @@ trait AttrCopy {
 }
 /*
 trait Tree extends AttrCopy {
-  def children: List[Tree]
+  def children: Seq[Tree]
 
-  def subTypeExprs: Iterable[TypeExpr] = List()
+  def subTypeExprs: Iterable[TypeExpr] = Seq()
   def scoped = false
   
   def typed = true
@@ -122,7 +122,7 @@ trait Expr extends Tree {
 
 
 trait SymDef extends Tree {
-  def symbols: List[Symbol] = List()
+  def symbols: Seq[Symbol] = Seq()
   override def typed = super.typed && symbols.forall(_.typed)
 }
 
@@ -133,19 +133,19 @@ trait TypeSymDef[T <: Type] extends SymDef {
 }
 
 case class BuiltinTypeDef extends Tree with SymDef {
-  def children = List()
+  def children = Seq()
   override def toString = "__builtins__(" + Utils.repsep(Defs.types.list.map(_.typeSymbol.toString)) + ")"
     
   override def symbols = typeSymbols ++ super.symbols
 
-  var typeSymbols: List[TypeSymbol] = Defs.types.list.map { case t => t.typeSymbol }
+  var typeSymbols: Seq[TypeSymbol] = Defs.types.list.map { case t => t.typeSymbol }
   override def copyAttrs(e: this.type): Unit = {
     e.typeSymbols = typeSymbols
   }
 }
 
 case class ExternFunDef(name: String, llvmName: String, functionType: Defs.types.Function.Instance, redeclare: Boolean) extends Tree with SymDef {
-  def children = List()
+  def children = Seq()
 
   def declareSymbols() = {}
   
@@ -161,7 +161,7 @@ case class ExternFunDef(name: String, llvmName: String, functionType: Defs.types
 }
 
 case class BuiltinFunDef(fun: BuiltinFunction) extends Tree with SymDef {
-  def children = List()
+  def children = Seq()
 
   def declareSymbols() = {}
 
@@ -192,11 +192,11 @@ case class TypeId(name: String) extends TypeExpr {
   override def toString = if (symbol == null) "?" + name else symbol.toString()
 }
 
-case class TypeApply(name: String, args: List[TypeExpr]) extends TypeExpr {
+case class TypeApply(name: String, args: Seq[TypeExpr]) extends TypeExpr {
   override def toString = (if (symbol == null) "?" + name else symbol.toString()) + "[" + Utils.repsep(args.map(_.toString)) + "]"
 }
 
-case class Block(content: List[Tree]) extends Expr {
+case class Block(content: Seq[Tree]) extends Expr {
   override def toString = "{\n" + Utils.repsep(content.map(_.toString), "\n") + "\n}"
   override def children = content
   override def scoped = true
@@ -205,7 +205,7 @@ case class Block(content: List[Tree]) extends Expr {
 trait Literal[+T] extends Expr {
   def value: T
   override def toString = "lit(" + value.toString + ")"
-  def children = List()
+  def children = Seq()
 }
 
 object Literals {
@@ -228,9 +228,9 @@ trait LValue extends Expr
 
 case class ValDefinition(name: String, valTypeExpr: TypeExpr, value: Option[Expr], mutable: Boolean) extends Expr with SymDef {
   override def toString = "val " + Utils.symbolOr(valSymbol, "?" + name + " : " + valTypeExpr) + (value match { case Some(v) => " = " + v.toString case _ => "" })
-  override def children = value match { case Some(x) => List(x) case None => List() }
+  override def children = value match { case Some(x) => Seq(x) case None => Seq() }
   override def symbols = valSymbol :: super.symbols
-  override def subTypeExprs = List(valTypeExpr)
+  override def subTypeExprs = Seq(valTypeExpr)
 
   def declareSymbols() = {}
   
@@ -245,22 +245,22 @@ case class ValDefinition(name: String, valTypeExpr: TypeExpr, value: Option[Expr
 
 case class Assign(lvalue: LValue, value: Expr) extends Expr {
   override def toString = lvalue.toString + " = " + value.toString
-  def children = List(lvalue, value)
+  def children = Seq(lvalue, value)
 }
 
 case class If(condition: Expr, trueBlock: Expr, falseBlock: Expr) extends Expr {
   override def toString = "if(" + condition.toString() + ") " + trueBlock.toString() + " else " + falseBlock.toString()
-  override def children = List(condition, trueBlock, falseBlock)
+  override def children = Seq(condition, trueBlock, falseBlock)
 }
 
 case class While(condition: Expr, body: Expr) extends Expr {
-  def children = List(condition, body)
+  def children = Seq(condition, body)
 
 }
 
 case class Return(value: Expr) extends Expr {
   override def toString = "return " + value.toString()
-  override def children = List(value)
+  override def children = Seq(value)
 }
 
 object FunctionDefinition {
@@ -280,25 +280,25 @@ object Definition {
   }
 
   case class Argument(name: String, typeExpr: TypeExpr, mode: ArgModes.Mode) extends Expr with SymDef {
-    def children = List()
+    def children = Seq()
     var symbol: IdSymbol = new IdSymbol(name, this)
-    override def symbols = List(symbol)
+    override def symbols = Seq(symbol)
     override def toString = ArgModes.toString(mode) + " " + Utils.symbolOr(symbol, name + " : " + typeExpr)
-    override def subTypeExprs = List(typeExpr)
+    override def subTypeExprs = Seq(typeExpr)
   }
 }
 
 trait Definition extends Tree {
-  def arguments: List[Definition.Argument] 
-  def children : List[Tree] = arguments
+  def arguments: Seq[Definition.Argument] 
+  def children : Seq[Tree] = arguments
 }
 
-case class FunctionDefinition(name: String, args: List[Definition.Argument], body: Expr, retTypeExpr: TypeExpr) extends Tree with Definition with SymDef {
+case class FunctionDefinition(name: String, args: Seq[Definition.Argument], body: Expr, retTypeExpr: TypeExpr) extends Tree with Definition with SymDef {
 
   def arguments = args
   
   override def toString = "def " + Utils.symbolOr(funSymbol, name) + "(" + Utils.repsep(args.map { arg => arg.toString() }) + ") : " + (if (returnType != null) returnType else "?" + retTypeExpr) + " = " + body
-  override def children = super.children ++ List(body)
+  override def children = super.children ++ Seq(body)
   override def symbols = funSymbol :: super.symbols
   
   override def subTypeExprs = retTypeExpr :: args.map(_.typeExpr)
@@ -338,7 +338,7 @@ trait AggregateDefinition[T <: Type] extends Tree with TypeSymDef[T] {
 case class TraitDefinition(name: String, body: Block) extends AggregateDefinition[Types.Trait] {
 
   override def toString = "trait " + Utils.symbolOr(typeSymbol, "?" + name) + " = " + body.toString()
-  def children = List(body)
+  def children = Seq(body)
 
   /*def copyAttrs(d: this.type) = {
     super[AggregateDefinition].copyAttrs(d)
@@ -346,13 +346,13 @@ case class TraitDefinition(name: String, body: Block) extends AggregateDefinitio
 
 }
 
-case class StructDefinition(name: String, constructorArguments: List[Definition.Argument], traits: List[TypeExpr], body: Block, isValue : Boolean) extends Tree
+case class StructDefinition(name: String, constructorArguments: Seq[Definition.Argument], traits: Seq[TypeExpr], body: Block, isValue : Boolean) extends Tree
 with SymDef with Definition with AggregateDefinition[Types.Struct] {
   def arguments = constructorArguments
 
   override def toString = "struct" + Utils.symbolOr(typeSymbol, name) + (if (traits.isEmpty) "" else " extends (" + Utils.repsep(traits.map(_.toString)) + ")") + " = " + body.toString()
-  override def children = super.children ++ List(body)
-  override def symbols = List(initSymbol, constructorSymbol, thisSymbol) ++ super.symbols
+  override def children = super.children ++ Seq(body)
+  override def symbols = Seq(initSymbol, constructorSymbol, thisSymbol) ++ super.symbols
   override def subTypeExprs = traits
   
 
@@ -372,11 +372,11 @@ with SymDef with Definition with AggregateDefinition[Types.Struct] {
   }
 }
 
-case class QualId(ids: List[String]) extends Expr {
-  override def children = List()
+case class QualId(ids: Seq[String]) extends Expr {
+  override def children = Seq()
 }
 
-case class Call(f: Expr, args: List[Expr]) extends Expr {
+case class Call(f: Expr, args: Seq[Expr]) extends Expr {
   override def toString = {
     
     val sargs = args.map(_.toString)
@@ -386,17 +386,17 @@ case class Call(f: Expr, args: List[Expr]) extends Expr {
 }
 
 case class PtrRef(ptr: Expr) extends Expr {
-  def children = List(ptr)
+  def children = Seq(ptr)
 }
 
 case class IRValue(name: String) extends Expr {
   override def toString = "llvm(" + name + ")"
-  override def children = List()
+  override def children = Seq()
 }
 
 case class Select(o: Expr, name: String) extends LValue {
   override def toString = "(" + o.toString() + "." + Utils.symbolOr(fieldSymbol, name) + " : " + ty + ")"
-  override def children = List(o)
+  override def children = Seq(o)
   
   override def typed = super.typed && fieldSymbol != null
   
@@ -420,7 +420,7 @@ object Id {
 case class Id(name: String) extends LValue {
   override def toString = Utils.symbolOr(symbol, name)
 
-  override def children = List()
+  override def children = Seq()
 
   var symbol: IdSymbol = null
 
@@ -432,7 +432,7 @@ case class Id(name: String) extends LValue {
 }
 
 case class PtrDeref(ptr: Expr) extends LValue {
-  def children = List(ptr)
+  def children = Seq(ptr)
   override def toString = "(*" + ptr.toString + ") : " + ty
 }
 */

@@ -1,8 +1,8 @@
 package nasc
 
 object Utils {
-  def repsep(s: Iterable[String]): String = repsep(s, ", ")
-  def repsep(s: Iterable[String], sep: String): String = {
+  def repsep(s: Seq[String]): String = repsep(s, ", ")
+  def repsep(s: Seq[String], sep: String): String = {
     if (s.size == 0) return ""
     s.tail.foldLeft(s.head)(_ + sep + _)
   }

@@ -75,11 +75,11 @@ class CodeGenerator(val dest: OutputStream) {
     writer.println("""call i32 (i8*, ...)* @printf(i8* getelementptr inbounds ([4 x i8]* @.intFmtStr, i32 0, i32 0), i32 %""" + varName + ")")
   }
 
-  def functionCall(funcName: String, args: List[String], res: String) = {
+  def functionCall(funcName: String, args: Seq[String], res: String) = {
     writer.println(res + " = call " + funcName + "(" + Utils.repsep(args) + ")")
   }
 
-  def voidFunctionCall(funcName: String, args: List[String]) = {
+  def voidFunctionCall(funcName: String, args: Seq[String]) = {
     writer.println("call " + funcName + "(" + Utils.repsep(args) + ")")
   }
   def beginFunction(retType: String, name: String, args: String) = {

@@ -15,8 +15,8 @@ trait Symbol {
 
   var isType: Boolean
   var typeInfo: TypeInfo = null
-  var typeVars: Iterable[(Symbol, Symbol)] = List()
-  var derivedSymbols: List[Symbol] = List()
+  var typeVars: Seq[(Symbol, Symbol)] = Seq()
+  var derivedSymbols: Seq[Symbol] = Seq()
 
   // For typing phase
   var typeSymbol: Symbol

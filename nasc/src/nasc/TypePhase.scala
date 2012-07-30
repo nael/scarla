@@ -1,7 +1,7 @@
 package nasc
 
 trait TypeInfo {
-  def members: List[Symbol]
+  def members: Seq[Symbol]
 
   def vals = members filter { m => m.definition != null && m.definition.isInstanceOf[ValDef] }
 }
@@ -9,7 +9,7 @@ trait TypeInfo {
 case class Conversion(from: Symbol, to: Symbol, conv: Tree => Tree)
 
 object Glob {
-  var conversions = List[Conversion]()
+  var conversions = Seq[Conversion]()
 }
 
 class TypePhase extends Phase[Tree, Tree] {
@@ -29,7 +29,7 @@ object Typer {
     var isType = true
     var definition: Def = null
 
-    typeInfo = new TypeInfo { def members = List() }
+    typeInfo = new TypeInfo { def members = Seq() }
   }
 
   def typeTree(t: Tree): Tree = {
@@ -43,7 +43,7 @@ object Typer {
   }
 
   // Takes a type tree and return all possible overloaded type symbols
-  def typeTreeSymbols(t: Tree): List[Symbol] = {
+  def typeTreeSymbols(t: Tree): Seq[Symbol] = {
     t match {
 
       case s: Sym => s.symbols filter { _.isType }
@@ -53,14 +53,14 @@ object Typer {
         val typeValsO = a.arguments map typeTreeSymbols
         Utils.assert(typeValsO forall { _.size == 1 })
         val typeVals = typeValsO map { _.first }
-        var syms = List[Symbol]()
+        var syms = Seq[Symbol]()
         fSyms.foreach { s =>
           s.definition match {
             case td: TypeDef => {
               if (td.typeVars.size == typeVals.size) {
                 val typeEnv = td.typeVars map { _.symbol } zip typeVals
 
-                syms ::= s.derivedSymbols find { _.typeVars == typeEnv } getOrElse {
+                syms +:= s.derivedSymbols find { _.typeVars == typeEnv } getOrElse {
                   val newSym = new Symbol {
                     def name = s + "[" + Utils.repsep(typeVals map { _.toString }) + "]"
                     var typeSymbol: Symbol = null
@@ -70,7 +70,7 @@ object Typer {
                     typeInfo = s.typeInfo
                   }
 
-                  s.derivedSymbols ::= newSym
+                  s.derivedSymbols +:= newSym
                   newSym
                 }
               }
@@ -96,7 +96,7 @@ object Typer {
     if (tree.typeSymbol == to) return Some(tree)
     else {
       Glob.conversions find { x => x.from == tree.typeSymbol && x.to == to } map { conv =>
-        conv.conv(tree)
+        Typer.typeTree(conv.conv(tree))
       }
     }
   }
@@ -191,12 +191,35 @@ object Typer {
       case s: Struct if !s.typed => {
         s.typeSymbol = NoType; s
       }
+
+      case ta: cast.TypeAttr if !ta.typed => {
+        if (ta.tree.typed) {
+          val ty = ta.tree.typeSymbol
+          val reqAttr = (ty.definition.attr -- ta.remove) ++ ta.add
+          ty.derivedSymbols find { sym =>
+            sym.typeVars == ty.typeVars && sym.definition.attr == reqAttr
+          } match {
+            case Some(s) => ta.typeSymbol = s
+            case None => Utils.error("Removing qualifier on type never seen before, should create")
+          }
+          ta
+        } else ta
+      }
+
       case l: Literal[_] if !l.typed => {
         l.typeSymbol = l.value match {
           case i: Int => Builtin.Int.symbol
           case _ => Utils.error("Unknown literal type : " + l.value.getClass)
         }
         l
+      }
+      
+      case n: New if !n.typed => {
+        if(n.typeTree.typed) {
+          //TODO check ctor args
+          n.typeSymbol = typeTreeSymbol(n.typeTree)
+          n
+        } else n
       }
 
       case a: Apply if !a.typed => {
@@ -219,7 +242,7 @@ object Typer {
   }
 
   // TODO here linearization of types & ... for now it just proceed in order and can fail (horribly)
-  def populateTypeInfos(tds: List[TypeDef]) = {
+  def populateTypeInfos(tds: Seq[TypeDef]) = {
     tds foreach { td =>
       val ts = typeTreeSymbol(td.typeName)
       td.value foreach {
@@ -228,11 +251,17 @@ object Typer {
             case vd: ValDef => vd.valName.symbol
             case dd: DefDef => dd.defName.symbol
           }
-          ts.typeInfo = new TypeInfo { def members = m.toList }
+          ts.typeInfo = new TypeInfo { def members = m.toSeq }
         }
-        case s: Sym => { Utils.assert(s.symbol.typeInfo != null); ts.typeInfo = s.symbol.typeInfo }
+        case s: Sym => {
+          Utils.assert(s.symbol.typeInfo != null)
+          ts.typeInfo = s.symbol.typeInfo
+          s.symbol.derivedSymbols +:= ts
+          ts.derivedSymbols +:= s.symbol
+        }
         case x => println("No typeinfo for " + x)
       }
+      td.typeVars.foreach { tv => tv.typeSymbol = NoType; tv.symbol.typeSymbol = NoType }
       ts.typeSymbol = NoType
     }
   }
@@ -245,17 +274,32 @@ object Typer {
           st.thisTree.symbol.typeSymbol = ts
           td
         } else {
-          val ptrSym = new Symbol {
-            def name = td.typeName.name + "Ptr"
-            var typeSymbol: Symbol = null
-            var isType = true
-            var definition: Def = null
+          ts.derivedSymbols find { sym =>
+            sym.typeVars == ts.typeVars && sym.definition.hasAttr[attributes.Move]
+          } match {
+            case None => {
+              val ptrSym = new Symbol {
+                def name = td.typeName.name + "Ptr"
+                var typeSymbol: Symbol = null
+                var isType = true
+                var definition: Def = null
+              }
+              val ptrTd = new TypeDef(new Sym(ptrSym), Seq(), Some(new Sym(ts)))
+              ptrSym.definition = ptrTd
+              ptrTd.attr += attributes.Move()
+
+              Glob.conversions +:= Conversion(ts, ptrSym, { t: Tree =>
+                new cast.TypeAttr(Set(attributes.Move()), Set(), t)
+              })
+              st.thisTree.symbol.typeSymbol = ptrSym
+              new Block(Seq(ptrTd, td))
+            }
+            case Some(sym) => {
+              st.thisTree.symbol.typeSymbol = sym
+              td
+            }
           }
-          val ptrTd = new TypeDef(new Sym(ptrSym), List(), Some(new Sym(ts)))
-          ptrSym.definition = ptrTd
-          ptrTd.attr += attributes.Move()
-          st.thisTree.symbol.typeSymbol = ptrSym
-          new Block(List(ptrTd, td))
+
         }
       }
       case _ => td
@@ -264,10 +308,10 @@ object Typer {
 
   def check(t: Tree): Unit = {
     var ok = true
-    val untyped = t filter { !_.typed }
+    val untyped = t filter { !_.typed } toSet
 
     if (!untyped.isEmpty) {
-      println("Untyped trees : " + untyped.map(_.getClass.toString))
+      println("Untyped trees : " + untyped.map(_.toString))
       ok = false
     } else {
       println("Whole tree is typed !")
@@ -311,7 +355,7 @@ object Typer {
     doTypeTree(s, true)
   }
 
-  def typed(s: List[Tree]): List[Tree] = {
+  def typed(s: Seq[Tree]): Seq[Tree] = {
     s.map { st => typed(st) }
   }
 
@@ -320,10 +364,10 @@ object Typer {
     s
   }
 
-  def collectAggregateFields(d: AggregateDefinition[_]): List[Types.Aggregate.Element] = {
+  def collectAggregateFields(d: AggregateDefinition[_]): Seq[Types.Aggregate.Element] = {
     val defBody = d.body.duplicate()
     defBody.children.map(doTypeTree(_, false)) // Ensure we know the fields types
-    defBody.children.toList.reverse.foldLeft(List[Types.Aggregate.Element]()) {
+    defBody.children.toSeq.reverse.foldLeft(Seq[Types.Aggregate.Element]()) {
       case (fields, vd: ValDefinition) => {
         Types.Aggregate.Field(vd.name, vd.valSymbol) :: fields
       }
@@ -418,7 +462,7 @@ object Typer {
   def typeExpr(e: Expr): Unit = {
     e.ty = e match {
       case Block(es) => {
-        es match { case List() => Defs.types.Unit case _ => es.last match { case ee: Expr => ee.ty case _ => Defs.types.Unit } }
+        es match { case Seq() => Defs.types.Unit case _ => es.last match { case ee: Expr => ee.ty case _ => Defs.types.Unit } }
       }
 
       case arg : Definition.Argument => {

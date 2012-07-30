@@ -1,14 +1,14 @@
 package nasc
 
-case class Context(values: Map[String, List[Symbol]], next: Option[Context]) {
+case class Context(values: Map[String, Seq[Symbol]], next: Option[Context]) {
   def add(name: String, v: Symbol) = {
-    Context(values + (name -> (v :: values.getOrElse(name, List()))), next)
+    Context(values + (name -> (v +: values.getOrElse(name, Seq()))), next)
   }
 
   def getFirst(name: String, isType: Boolean): Option[Symbol] =
-    values.getOrElse(name, List()) filter { _.isType == isType } match { case List() => next.flatMap(_.getFirst(name, isType)) case id :: ids => Some(id) }
-  def getAll(name: String, isType: Boolean): List[Symbol] =
-    (values.getOrElse(name, List()) filter { _.isType == isType }) ++ (next match { case None => List() case Some(c) => c.getAll(name, isType) })
+    values.getOrElse(name, Seq()) filter { _.isType == isType } match { case Seq() => next.flatMap(_.getFirst(name, isType)) case id :: ids => Some(id) }
+  def getAll(name: String, isType: Boolean): Seq[Symbol] =
+    (values.getOrElse(name, Seq()) filter { _.isType == isType }) ++ (next match { case None => Seq() case Some(c) => c.getAll(name, isType) })
   def contains(name: String) = values.contains(name) && (!values(name).isEmpty)
   def chain(o: Context): Context = next match { case None => Context(values, Some(o)) case Some(c) => Context(values, Some(c.chain(o))) }
   override def toString = "{\n" + (values.map { case (k, v) => "\t" + k + " -> " + v + "\n" }).mkString + "next => " + next.getOrElse("{}").toString + "\n}"
@@ -103,8 +103,8 @@ class SymPhase extends Phase[Tree, Tree] {
   }
   /*  
   case class ContextTree(ctx : Context, tree : ast.linked.Tree)
-  case class ContextTrees(ctx : Context, trees : List[ast.linked.Tree] = List())
-  def processList(ctx : Context, es : List[ast.syntax.Tree]) : ContextTrees = {
+  case class ContextTrees(ctx : Context, trees : Seq[ast.linked.Tree] = Seq())
+  def processSeq(ctx : Context, es : Seq[ast.syntax.Tree]) : ContextTrees = {
       es.foldLeft(ContextTrees(ctx)) { case (ContextTrees(ctx, ls), e) =>
         val ctxTree = process(ctx, e)
         ContextTrees(ctxTree.ctx, ls :+ ctxTree.tree)
@@ -116,13 +116,13 @@ class SymPhase extends Phase[Tree, Tree] {
     
     t match {
       case ast.syntax.t.Block(ls) => {
-        val finalCtx = processList(ctx, ls)
+        val finalCtx = processSeq(ctx, ls)
         ContextTree(finalCtx.ctx, ast.linked.t.Block(finalCtx.trees))
       }
       
       case ast.syntax.t.Apply(function, args) => {
         val f = process(ctx, function)
-        val a = processList(f.ctx, args)
+        val a = processSeq(f.ctx, args)
         ContextTree(a.ctx, ast.linked.t.Apply(f.tree, a.trees))
       }
       

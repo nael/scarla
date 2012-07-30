@@ -2,7 +2,7 @@
 
 class StructPhase extends Phase[CompilationUnit, CompilationUnit] {
   def name = "struct"
-  var defs: List[StructDefinition] = List()
+  var defs: Seq[StructDefinition] = Seq()
   def execute(cu: CompilationUnit): CompilationUnit = {
     cu.root = cu.root.transform(addInit)
     cu.root = cu.root.transform(addCtor)
@@ -45,7 +45,7 @@ class StructPhase extends Phase[CompilationUnit, CompilationUnit] {
     case _ => st
   }
 
-  def initCall(sd: StructDefinition, args: List[Expr]) = {
+  def initCall(sd: StructDefinition, args: Seq[Expr]) = {
     val initId = Id.fromSymbol(sd.initSymbol)
     // Gotta do this here cause it wont be done by this phase : we are not calling init via a Select()
     val initTy = sd.initSymbol.ty.asInstanceOf[Defs.types.Function.Instance]
@@ -63,16 +63,16 @@ class StructPhase extends Phase[CompilationUnit, CompilationUnit] {
         case vd: ValDefinition if vd.value != None => {
           val valId = Id(vd.name)
           valId.symbol = vd.valSymbol
-          List(Assign(valId, vd.value.get))
+          Seq(Assign(valId, vd.value.get))
         }
-        case vd: ValDefinition if vd.value == None => List()
-        case _: FunctionDefinition => List()
-        case st: Tree => List(st)
-      }.toList
+        case vd: ValDefinition if vd.value == None => Seq()
+        case _: FunctionDefinition => Seq()
+        case st: Tree => Seq(st)
+      }.toSeq
       val initDef = FunctionDefinition(sd.initSymbol.uniqueName, sd.constructorArguments, Typer.typed(Block(initBody)), TypeId.fromSymbol(Defs.types.Unit.typeSymbol))
       initDef.funSymbol = sd.initSymbol
       initDef.returnType = Defs.types.Unit
-      val emptiedBody = sd.body.children.toList //.filter { case _ : FunctionDefinition => true case _ => false } toList
+      val emptiedBody = sd.body.children.toSeq //.filter { case _ : FunctionDefinition => true case _ => false } toSeq
 
       val newSd: StructDefinition = sd.copy(body = Typer.typed(Block(initDef :: emptiedBody)))
       sd.copyAttrs(newSd.asInstanceOf[sd.type])
@@ -89,7 +89,7 @@ class StructPhase extends Phase[CompilationUnit, CompilationUnit] {
       val id = Id.fromSymbol(sv.valSymbol)
 
       val alloc = if (sd.isValue) None else {
-        val mallocCall = Call(Id.fromSymbol(Defs.malloc), List(Literals.Integer(88), id))
+        val mallocCall = Call(Id.fromSymbol(Defs.malloc), Seq(Literals.Integer(88), id))
         mallocCall.ty = new Types.Named(sd.typeSymbol)
         Some(mallocCall)
       }
@@ -101,12 +101,12 @@ class StructPhase extends Phase[CompilationUnit, CompilationUnit] {
       init.fieldSymbol = sd.initSymbol
       init.ty = sd.initSymbol.ty
       val call = Call(init, sd.constructorArguments.map { arg => Id.fromSymbol(arg.symbol) })
-      val ctorBody = sv :: (alloc.toList ++ List(call, id))
+      val ctorBody = sv :: (alloc.toSeq ++ Seq(call, id))
       val ctorDef = FunctionDefinition(sd.constructorSymbol.name, sd.constructorArguments, Typer.typed(Block(ctorBody)), TypeId.fromSymbol(sd.typeSymbol))
       ctorDef.funSymbol = sd.constructorSymbol
       ctorDef.returnType = new Types.Named(sd.typeSymbol)
       Typer.typeTree(ctorDef)
-      val b = Block(List(sd, ctorDef))
+      val b = Block(Seq(sd, ctorDef))
       b.ty = Defs.types.Unit
       b
     }
