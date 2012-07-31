@@ -49,6 +49,7 @@ class CodeGenPhase extends Phase[Tree, String] {
     val layout =
       if (s == Builtin.Int.symbol) "i32"
       else if (s == Builtin.Unit.symbol) "void"
+      else if (s == Builtin.Boolean.symbol) "i1"
       else if (Builtin.isFunction(s)) {
         typeLayout(Builtin.functionReturnType(s)) + "(" + (Builtin.functionArgTypes(s) map typeName mkString ", ") + ")*"
       } else s.definition match {
@@ -88,7 +89,6 @@ class CodeGenPhase extends Phase[Tree, String] {
     tree traverse {
 
       case dd: DefDef if !dd.body.isEmpty => {
-        println("Codegen fun " + dd.defName.name)
 
         val fun = dd.defName.symbol
         val llvmFunName = cg.freshGlobal(fun.uniqueName)
@@ -132,7 +132,6 @@ class CodeGenPhase extends Phase[Tree, String] {
           case Some(s: Struct) => {
             td.typeName.symbol.typeInfo.vals.zipWithIndex foreach {
               case (x, i) => {
-                println("Choosing index(" + i + ") for " + x)
                 x.storage = SymbolStorage.Index(i)
               }
             }
@@ -163,7 +162,7 @@ class CodeGenPhase extends Phase[Tree, String] {
             res
 
           }
-          case _ => Utils.error("q2sdqsd")
+          case _ => Utils.error("Select storage : " + mSym.storage)
         }
       }
       case _ => Utils.error("Cannot generate pointer to " + tree)
@@ -175,9 +174,10 @@ class CodeGenPhase extends Phase[Tree, String] {
   def genTree(cg: CodeGenerator, tree: Tree): String = {
     tree match {
 
-      case b: Block => b.children map { t => genTree(cg, t) } last
+      case b: Block if !b.children.isEmpty => b.children map { t => genTree(cg, t) } last
+      case _: Block => "undef"
 
-      case s: Sym => { println("Gen$ " + s); s.symbol.storage.genAccess(cg) }
+      case s: Sym => {  s.symbol.storage.genAccess(cg) }
 
       case a: Apply => {
         val fTy = a.function.typeSymbol
@@ -196,18 +196,20 @@ class CodeGenPhase extends Phase[Tree, String] {
       }
 
       case n: New => {
-        Utils.assert(n.typeSymbol.definition.hasAttr[attributes.Move])
-        // TODO if heap generate malloc()
-        val sizeof0 = cg.freshName("sz")
-        val sizeof1 = cg.freshName("sz")
-        cg.writer.println(sizeof0 + " = getelementptr " + typeName(n.typeSymbol) + " null, i64 1")
-        cg.writer.println(sizeof1 + " = ptrtoint " + typeName(n.typeSymbol) + " " + sizeof0 + " to i64")
-        val nptr = cg.freshName()
-        cg.functionCall("i8* @malloc", Seq("i64 " + sizeof1), nptr)
-        //cg.voidFunctionCall("void @printInt", Seq("i32 " + sizeof1)) 
-        val v = cg.freshName()
-        cg.writer.println(v + " = bitcast i8* " + nptr + " to " + typeName(n.typeSymbol))
-        v
+        //Utils.assert(n.typeSymbol.definition.hasAttr[attributes.Move])
+        // TODO think about the different needed types of alloc
+        if (n.typeSymbol.definition.hasAttr[attributes.Heap]) {
+          val sizeof0 = cg.freshName("sz")
+          val sizeof1 = cg.freshName("sz")
+          cg.writer.println(sizeof0 + " = getelementptr " + typeName(n.typeSymbol) + " null, i64 1")
+          cg.writer.println(sizeof1 + " = ptrtoint " + typeName(n.typeSymbol) + " " + sizeof0 + " to i64")
+          val nptr = cg.freshName()
+          cg.functionCall("i8* @malloc", Seq("i64 " + sizeof1), nptr)
+          //cg.voidFunctionCall("void @printInt", Seq("i32 " + sizeof1)) 
+          val v = cg.freshName()
+          cg.writer.println(v + " = bitcast i8* " + nptr + " to " + typeName(n.typeSymbol))
+          v
+        } else "undef"
       }
 
       case vd: ValDef => {
@@ -258,13 +260,53 @@ class CodeGenPhase extends Phase[Tree, String] {
         "undef"
       }
 
-      case lit: Literal[_] => {
+      case i: If => {
+        val condV = genTree(cg, i.condition)
+        val trueLabel = cg.freshLabel("true_label")
+        val falseLabel = cg.freshLabel("false_label")
+        val endLabel = cg.freshLabel("end_if_label")
+        val resultV = cg.freshName()
+        cg.writer.println("br i1 " + condV + ", label %" + trueLabel + ", label %" + falseLabel)
+        cg.beginBlock(trueLabel)
+        val tbV = genTree(cg, i.ifTrue)
+        cg.writer.println("br label %" + endLabel)
+        val trueReturnBlock = cg.currentBlock
+        cg.beginBlock(falseLabel)
+        val fbV = genTree(cg, i.ifFalse)
+        cg.writer.println("br label %" + endLabel)
+        val falseReturnBlock = cg.currentBlock
+        cg.beginBlock(endLabel)
+        if (i.ifTrue.typeSymbol != Builtin.Unit.symbol) {
+          cg.writer.println(resultV + " = phi " + typeName(i.ifTrue.typeSymbol) + " [" + tbV + ", %" + trueReturnBlock + "], [" + fbV + ", %" + falseReturnBlock + "]")
+          resultV
+        } else "undef"
+      }
+
+      case w: While => {
+        val testLabel = cg.freshLabel("test_label")
+        val loopBodyLabel = cg.freshLabel("loop_body")
+        val endLoopLabel = cg.freshLabel("end_loop")
+        cg.writer.println("br label %" + testLabel)
+        cg.beginBlock(testLabel)
+        val condV = genTree(cg, w.condition)
+        cg.writer.println("br i1 " + condV + ", label %" + loopBodyLabel + ", label %" + endLoopLabel)
+        cg.beginBlock(loopBodyLabel)
+        genTree(cg, w.body)
+        cg.writer.println("br label %" + testLabel)
+        cg.beginBlock(endLoopLabel)
+        "undef"
+      }
+
+      case lit: Literal => {
         lit.value match {
           case i: Int => i.toString
+          case false => "0"
+          case true => "1"
+          case null => "undef"
         }
       }
 
-      case _ => { println("Warning skipping codegen for " + tree.getClass); "undef" }
+      case _ => { "undef" }
     }
   }
 }

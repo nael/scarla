@@ -130,7 +130,7 @@ object Builtin {
   }
 
   val Int = Ty("Int", new TypeInfo { def members = Seq() })
-
+  val Boolean = Ty("Boolean", new TypeInfo { def members = Seq() })
   val Unit = Ty("Unit", new TypeInfo { def members = Seq() })
 
   val Functions = (0 to 7) map { i =>
@@ -159,7 +159,7 @@ object Builtin {
   def functionArgTypes(x: Symbol): Seq[Symbol] = { Utils.assert(isFunction(x)); x.typeVars.dropRight(1) map { _._2 } toSeq }
   def isFunction(x: Symbol): Boolean = Functions exists { f => isTypeInstanceOf(x, f.symbol) }
 
-  val typeDefs = Seq(Int, Unit) ++ Functions map makeDef
+  val typeDefs = Seq(Int, Boolean, Unit) ++ Functions map makeDef
 
   def makeDef(ty: Ty): TypeDef = {
     val s = new Symbol {
@@ -180,10 +180,21 @@ class Block(var children: Seq[Tree]) extends Tree {
   override def toString = "{\n" + children.map(_.toString).mkString("\n") + "\n}"
 }
 
-class Literal[T](var value: T) extends Tree {
+class If(var condition: Tree, var ifTrue: Tree, var ifFalse: Tree) extends Tree {
+  def children = Seq(condition, ifTrue, ifFalse)
+  
+  override def toString = "if(" + condition.toString + ") " + ifTrue.toString + (ifFalse match { case b: Block if b.children.isEmpty => "" case _ =>" else " + ifFalse.toString })
+}
+
+class While(var condition: Tree, var body: Tree) extends Tree {
+  def children = Seq(condition, body)
+  override def toString = "while(" + condition.toString + ") " + body.toString
+}
+
+class Literal(var value: Any) extends Tree {
   def children = Seq()
 
-  override def toString = "[lit:" + value.toString + "]"
+  override def toString = "[lit:" + (if(value == null) "()" else value.toString) + "]"
 }
 
 class Name(override val name: String, val isTypeName: Boolean) extends Tree {
@@ -263,6 +274,15 @@ trait TreeTransform {
         a.dest = transform(a.dest)
         a.value = transform(a.value)
       }
+      case i: If => {
+        i.condition = transform(i.condition)
+        i.ifTrue = transform(i.ifTrue)
+        i.ifFalse = transform(i.ifFalse)
+      }
+      case w: While => {
+        w.condition = transform(w.condition)
+        w.body = transform(w.body)
+      }
       case n: New => {
         if(!exprOnly) n.args = transformSeq(n.args)
         if(!exprOnly) n.typeTree = transform(n.typeTree)
@@ -270,7 +290,7 @@ trait TreeTransform {
       case ta: cast.TypeAttr => {
         ta.tree = transform(ta.tree)
       }
-      case _: Literal[_] => ()
+      case _: Literal => ()
       case _: Name => ()
       case _: Sym => ()
       //case x => x 

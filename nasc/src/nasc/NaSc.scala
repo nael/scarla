@@ -2,16 +2,27 @@ package nasc
 
 import java.io.{ File, FileOutputStream }
 import java.io.FileWriter
-object IMP {
-  implicit def func2partial[A, B](f: A => B): PartialFunction[A, B] = {
-    { case x => f(x) }
-  }
-}
+import java.io.FileReader
+
 object NaSc {
   def exec() = {
     val pr = scala.sys.process.stringToProcess("cmd /C " + "do")
     pr.!!.replace("\r", "") // lol
   }
+
+  def buildAndRun(fn: String): String = {
+    val src = io.Source.fromFile(fn).mkString
+    val runtimeHost = io.Source.fromFile("runtime.sc").mkString
+    val runtimeIr = io.Source.fromFile("runtime.ir").mkString
+    val pipeline = new ParsePhase() ++ new SymPhase() ++ new TypePhase() ++ new LiftMethodsPhase() ++ new CodeGenPhase()
+    val res = pipeline.process("{" + runtimeHost + "\n" + src + "}")
+    val fw = new FileWriter("test.ir")
+    fw.write(runtimeIr + "\n\n")
+    fw.write(res)
+    fw.close()
+    exec()
+  }
+
   def main2(args: Array[String]): Unit = {
     if (args.length > 0) {
       G.verbose = false
@@ -59,14 +70,28 @@ object NaSc {
   }
 
   def main(args: Array[String]): Unit = {
-    val pipeline = new ParsePhase() ++ new SymPhase() ++ new TypePhase() ++ new LiftMethodsPhase() ++ new CodeGenPhase()
-    val res = pipeline.process(q0)
-    println("========== res : ")
-    println(res)
-    val fw = new FileWriter("test.ir")
-    fw.write(res)
-    fw.close()
+    if(args.length == 0)
+    	println(buildAndRun("./src/tests/current.sc"))
+    else {
+    	G.verbose = false
+    	val fs = new File("./src/tests").listFiles() filter { _.getName.endsWith(".sc") } toSeq
+    	
+    	fs foreach { f =>
+    	  val fw = io.Source.fromFile(f.getParent() + "/" + f.getName + ".result")
+    	  val res = buildAndRun(f.getAbsolutePath())
+    	  val exp = fw.mkString.replace("\r", "") // lol
+    	  if(exp == res) { println("test " + f.getName + " ok")}
+    	  else {
+    	    println("test " + f.getName +" fails :")
+    	    println("expected :")
+    	    println(exp toList)
+    	    println("got :")
+    	    println(res toList)
+    	  }
+    	}
+    }
   }
+
   val p0 = """{
     class A {}
     class B {}
@@ -81,107 +106,23 @@ object NaSc {
   val q0 = """{
       native(plus) def +(x: Int, y: Int): Int
       native(printInt) def printInt(x: Int): Unit
-      
+      native(equals) def ==(x: Int, y: Int): Boolean
+            native(lte) def <=(x: Int, y: Int): Boolean
+
       class A(z: Int) {
-         val a : Int = 666
+         val a : Int = 666 + z
+         printInt(85)
          def k(): Unit = { a = a + 1 }
          def p(): Unit = { printInt(a) }
       }
-      def f(): Unit = {
-         val x: A
-    		x.a = 666
-             val q: A
-    		q.a = 666
-
-             val y: A
-    		y.a = 666
-
-             val z: A
-    		z.a = 666
-
+      val i: Int = 0
+      while(i <= 3) {
+         printInt(i)
+         i = i + 1
       }
-      f()
     }"""
-  val p9 = """{
+  val p9 = """{g
 
-class LL(v : Int) {
-          val x : Int = v
-          var next : LL
-          var hasNext : Int = 0
-}
-
-def printSeq(l : LL) : Int = {
-          printInt(l.x)
-          if(l.hasNext == 1) { printSeq(l.next); 0} else { 0 }
-}
-def ints(n : Int) : LL = {
-          if(n == 0) LL(0) else {
-          	val  head : LL = LL(n)
-          	head.next = ints(n-1)
-          	head.hasNext = 1
-          	head
-          }
-}
-def fsum(l : LL) : Int = {
-          if(l.hasNext == 0) l.x else {
-          	l.x + fsum(l.next)
-          }
-}
-def isum(l : LL) : Int = {
-          var cur : LL = l
-          var tot : Int = cur.x
-          while(cur.hasNext == 1) {
-             cur = cur.next
-             tot = tot + cur.x
-          }
-          tot
-}
-def isIn(l : LL, v : Int) : Int = {
-         val u : Int = if(l.hasNext == 1) isIn(l.next, v) else 0
-         if(l.x == v) 1 else {
-          u
-         }
-}
-def addMults(l : LL, v : Int, max : Int) : LL = {
-          var i : Int = 0
-          var head : LL = l
-          while(i <= max) {
-          	i = i + v
-            val newHead : LL = LL(i)
-            newHead.next = head
-            newHead.hasNext = 1
-            head = newHead
-          }
-          head
-}
-def sieve(n : Int) : LL = {
-        var primes : LL = LL(1)
-        var marked : LL = LL(1)
-        var i : Int = 1
-        while(i <= n) {
-          i = i + 1
-          if(isIn(marked, i) == 0) {
-            val nh : LL = LL(i)
-            nh.next = primes
-            nh.hasNext = 1
-            primes = nh
-            marked = addMults(marked, i, n)
-            0
-          } else { 0 }
-        }
-            primes
-}
-val lim : Int = 42
-val tot1 : Int = 2*fsum(ints(lim))
-val tot2 : Int = 2*isum(ints(lim))
-val tot3 : Int = lim*(lim + 1)
-printInt(tot1)
-printInt(tot2)
-printInt(tot3)
-val primes : LL = sieve(30)
-printSeq(primes)
-val ps : Int = fsum(primes)
-printInt(ps)
   }"""
 
   val q1 = """

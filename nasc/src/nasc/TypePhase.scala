@@ -62,7 +62,10 @@ object Typer {
 
                 syms +:= s.derivedSymbols find { _.typeVars == typeEnv } getOrElse {
                   val newSym = new Symbol {
-                    def name = s + "[" + Utils.repsep(typeVals map { _.toString }) + "]"
+                    def name = {
+                      val extractedLocalValue = Utils.repsep(typeVals map { _.toString })
+                      s + "[" + extractedLocalValue +  ("]")
+                    }
                     var typeSymbol: Symbol = null
                     var isType = true
                     var definition: Def = s.definition
@@ -92,8 +95,11 @@ object Typer {
 
   def convert(tree: Tree, to: Symbol): Option[Tree] = {
     Utils.assert(tree.typed && to.isType)
-    println("Trying conversion " + to + " -> " + tree.typeSymbol + " --- " + tree)
+//    println("Trying conversion " + to + " -> " + tree.typeSymbol + " --- " + tree)
     if (tree.typeSymbol == to) return Some(tree)
+    else if(to == Builtin.Unit.symbol) {
+      Some(Typer.typeTree(new Block(Seq(tree, new Literal(null)))))
+    }
     else {
       Glob.conversions find { x => x.from == tree.typeSymbol && x.to == to } map { conv =>
         Typer.typeTree(conv.conv(tree))
@@ -134,7 +140,6 @@ object Typer {
       case sel: Select if !sel.typed => {
         if (sel.from.typed) {
           val ty = sel.from.typeSymbol.typeInfo
-          println("SS " + sel.from.typeSymbol + " / " + sel.from.typeSymbol.typeInfo)
           ty.members find { _.name == sel.memberName.name } match {
             case Some(member) => {
               sel.memberName = transform(new Sym(member))
@@ -205,10 +210,40 @@ object Typer {
           ta
         } else ta
       }
+      
+      case i: If if !i.typed => {
+        if(i.condition.typed && i.ifTrue.typed && i.ifFalse.typed) {
+          (convert(i.condition, Builtin.Boolean.symbol), convert(i.ifTrue, i.ifFalse.typeSymbol)) match { // TODO haveCommonConv
 
-      case l: Literal[_] if !l.typed => {
+            case (Some(cond), Some(tb)) => {
+              i.condition = cond
+              i.ifTrue = tb
+              i.typeSymbol = i.ifFalse.typeSymbol
+            }
+                        case _ => ()
+          }
+          i
+        } else i
+      }
+      
+      case w: While if !w.typed => {
+        if(w.condition.typed && w.body.typed) {
+          convert(w.condition, Builtin.Boolean.symbol) match {
+            case Some(cond) => {
+              w.condition = cond
+              w.typeSymbol = Builtin.Unit.symbol
+              w
+            }
+            case _ => w
+          }
+        } else w
+      }
+
+      case l: Literal if !l.typed => {
         l.typeSymbol = l.value match {
           case i: Int => Builtin.Int.symbol
+          case b: Boolean => Builtin.Boolean.symbol
+          case null => Builtin.Unit.symbol // TODO ugh
           case _ => Utils.error("Unknown literal type : " + l.value.getClass)
         }
         l
@@ -228,7 +263,7 @@ object Typer {
             val fArgTypes = Builtin.functionArgTypes(a.function.typeSymbol)
             if (fArgTypes.size != a.arguments.size) Utils.error("Wrong argument count")
             val args = (fArgTypes zip a.arguments) map { case (ty, arg) => convert(arg, ty) }
-            if (args.contains(None)) Utils.error("Wrong arg type")
+            if (args.contains(None)) Utils.error("Wrong arg type : " + fArgTypes + " / " + a.arguments)
 
             a.arguments = args map { _.get }
             a.typeSymbol = Builtin.functionReturnType(a.function.typeSymbol)
@@ -314,7 +349,7 @@ object Typer {
       println("Untyped trees : " + untyped.map(_.toString))
       ok = false
     } else {
-      println("Whole tree is typed !")
+      if(G.verbose) println("Whole tree is typed !")
     }
 
     val syms = (t collect { case x if x.hasSymbol => x.symbol }) ++ (t collect { case x if x.typed => x.typeSymbol })

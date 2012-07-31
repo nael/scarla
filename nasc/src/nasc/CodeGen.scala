@@ -26,6 +26,7 @@ object BinOps extends Enumeration {
 
 class CodeGenerator(val dest: OutputStream) {
 
+  var currentBlock = "[!!!]"
   val varNames = new collection.mutable.HashMap[String, Int]()
   val writer = new PrintWriter(dest)
 
@@ -78,6 +79,11 @@ class CodeGenerator(val dest: OutputStream) {
   def functionCall(funcName: String, args: Seq[String], res: String) = {
     writer.println(res + " = call " + funcName + "(" + Utils.repsep(args) + ")")
   }
+  
+  def beginBlock(name: String) = {
+    currentBlock = name
+    writer.println(name + ":")
+  }
 
   def voidFunctionCall(funcName: String, args: Seq[String]) = {
     writer.println("call " + funcName + "(" + Utils.repsep(args) + ")")
@@ -89,22 +95,7 @@ class CodeGenerator(val dest: OutputStream) {
     writer.println("}")
   }
   def prelude() = {
-    writer.write("""@.intFmtStr = private unnamed_addr constant [4 x i8] c"%d\0A\00", align 1
-declare i32 @printf(i8* nocapture, ...) nounwind
-declare i8* @llvm.init.trampoline(i8*, i8*, i8*)
-declare noalias i8* @malloc(i64) nounwind
-        
-define void @printInt(i32 %n) nounwind {
-    call i32 (i8*, ...)* @printf(i8* getelementptr inbounds ([4 x i8]* @.intFmtStr, i32 0, i32 0), i32 %n)
-    ret void
-}
-        
-define i32 @plus(i32 %p, i32 %q) {
-    %n = add i32 %p, %q
-    ret i32 %n
-}
-
-""")
+    writer.write("""""")
   }
 
   def beginMain() = {

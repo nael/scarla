@@ -7,9 +7,9 @@ object Grammar extends RegexParsers {
   val id = """[a-zA-Z]([a-zA-Z0-9_])*"""r
   val integerLiteral = """[0-9]+"""r
   val booleanLiteral = """true|false"""
-  val operators = """\+|-|\*"""r
+  val operators = """\+|-|\*|==|<="""r
 
-  override protected val whiteSpace = """( |\t)+""".r
+  override protected val whiteSpace = """( |\t|\r)+""".r
 
   def program: Parser[Tree] = expr // TODO maybe not that good
 
@@ -22,7 +22,7 @@ object Grammar extends RegexParsers {
     | id ^^ { s => new Name(s, true) })
 
   def valDef = ("val" | "var") ~ id ~ ":" ~ typeExpr ~ optValue ^^ {
-    case "val" ~ vn ~ _ ~ ty ~ value =>
+    case _ ~ vn ~ _ ~ ty ~ value =>
       new ValDef(new Name(vn, false), ty, value)
     //case "var" ~ valName ~ _ ~ ty ~ value => t.ValDef(t.Id(valName), ty, value) //TODO mutability
   }
@@ -60,7 +60,7 @@ object Grammar extends RegexParsers {
     | structDef
     //| traitDef
     | expr)
-  def blockSep = (";" | "\n")
+  def blockSep = (";" | "\n" | whiteSpace)
   def block = ("{" ~> (blockSep*) ~> repsep(stmt, blockSep+) <~ (blockSep*) <~ "}") ^^ { x => new Block(x) }
 
   def qualId = id ~ (("." ~> id)*) ^^ { case i ~ Nil => Seq(i) case i ~ is => i :: is }
@@ -77,11 +77,11 @@ object Grammar extends RegexParsers {
   def expr: Parser[Tree] = (
     block
     | lvalue ~ "=" ~ expr ^^ { case lv ~ _ ~ value => new Assign(lv, value) }
-    // | "if" ~ "(" ~ expr ~ ")" ~ expr ~ "else" ~ expr ^^ { case _ ~ _ ~ cond ~ _ ~ tb ~ _ ~ fb => If(cond, tb, fb) }
-    //| "if" ~ "(" ~ expr ~ ")" ~ expr ^^ { case _ ~ _ ~ cond ~ _ ~ tb => If(cond, tb, Block()) }
-    //| "while" ~ "(" ~ expr ~ ")" ~ expr ^^ { case _ ~ _ ~ cond ~ _ ~ body => While(cond, body) }
-    //| basicExpr ~ "==" ~ basicExpr ^^ { case e1 ~ _ ~ e2 => Call(Id("=="), Seq(e1, e2)) }
-    //| basicExpr ~ "<=" ~ basicExpr ^^ { case e1 ~ _ ~ e2 => Call(Id("<="), Seq(e1, e2)) }
+    | "if" ~ "(" ~ expr ~ ")" ~ expr ~ "else" ~ expr ^^ { case _ ~ _ ~ cond ~ _ ~ tb ~ _ ~ fb => new If(cond, tb, fb) }
+    | "if" ~ "(" ~ expr ~ ")" ~ expr ^^ { case _ ~ _ ~ cond ~ _ ~ tb => new If(cond, tb, new Block(Seq())) }
+    | "while" ~ "(" ~ expr ~ ")" ~ expr ^^ { case _ ~ _ ~ cond ~ _ ~ body => new While(cond, body) }
+    | basicExpr ~ "==" ~ basicExpr ^^ { case e1 ~ _ ~ e2 => new Apply(new Name("==", false), Seq(e1, e2)) }
+    | basicExpr ~ "<=" ~ basicExpr ^^ { case e1 ~ _ ~ e2 => new Apply(new Name("<=", false), Seq(e1, e2)) }
     //| basicExpr ~ "!=" ~ basicExpr ^^ { case e1 ~ _ ~ e2 => Call(Id("!="), Seq(e1, e2)) }
     | basicExpr)
   def basicExpr: Parser[Tree] = (
@@ -96,17 +96,16 @@ object Grammar extends RegexParsers {
     (lvExpr ~ "(" ~ argSeq ~ ")") ^^ { case e ~ _ ~ args ~ _ => new Apply(e, args) }
     | lvExpr)
   def lvExpr: Parser[Tree] = (
-      "new" ~ id ~ (("(" ~ argSeq ~ ")")?) ^^ {case _ ~ cname ~ args  => new New(new Name(cname, true), args map { case _ ~ x ~ _ => x} getOrElse(Seq()))} |
-    lvalue | atom )
+      "new " ~ id ~ (("(" ~ argSeq ~ ")")?) ^^ {case _ ~ cname ~ args  => new New(new Name(cname, true), args map { case _ ~ x ~ _ => x} getOrElse(Seq()))} |
+     ("true"r) ^^ { _ => new Literal(true) }
+  | ("false"r) ^^ { _ => new Literal(false) } | lvalue | atom)
   def atom: Parser[Tree] = (
     /* "@".r ~ id ^^ { case _ ~ id => PtrRef(Id(id)) }
     |*/ literal | ("(" ~ expr ~ ")") ^^ { case _ ~ e ~ _ => e })
-
-  def literal: Parser[Literal[Any]] = (
-    (("-".r?) ~ integerLiteral) ^^ { case Some(_) ~ d => new Literal[Any](-Integer.parseInt(d)) case None ~ d => new Literal[Any](Integer.parseInt(d)) }
-    | (""""[^"]*""""r) ^^ { s => new Literal[Any](s.slice(1, s.length() - 1)) })
-  //| ("true"r) ^^ { _ => t.Literal[Boolean](true) }
-  //| ("false"r) ^^ { _ => t.Literal[Boolean](false) })
+  def literal: Parser[Tree] = (
+    (("-".r?) ~ integerLiteral) ^^ { case Some(_) ~ d => new Literal(-Integer.parseInt(d)) case None ~ d => new Literal(Integer.parseInt(d)) }
+    | (""""[^"]*""""r) ^^ { s => new Literal(s.slice(1, s.length() - 1)) }
+  )
   /*
   def qualId = id ~ (("." ~> id)*) ^^ { case i ~ Nil => QualId(Seq(i)) case i ~ is => QualId(i :: is) }
 
