@@ -113,7 +113,16 @@ class PrettyPrinter {
   def printAttrs(x: Tree) = {
     out ++= x.attrString
   }
-
+  def printLines(ss: Seq[Tree]): Unit = {
+    ss foreach { s =>
+      if (mustPrint(s)) {
+        s match {
+          case b: Block => printLines(b.children)
+          case _ => { prettyPrint(s); out ++= "<br/>" }
+        }
+      }
+    }
+  }
   def prettyPrint(x: Tree): Unit = x match {
     case b: Block => {
       if (b.children.size == 0) {
@@ -123,17 +132,6 @@ class PrettyPrinter {
       } else {
         out ++= bracket("{") + "<br/>"
         beginBlock()
-
-        def printLines(ss: Seq[Tree]): Unit = {
-          ss foreach { s =>
-            if (mustPrint(s)) {
-              s match {
-                case b: Block => printLines(b.children)
-                case _ => { prettyPrint(s); out ++= "<br/>" }
-              }
-            }
-          }
-        }
 
         printLines(b.children)
         endBlock()

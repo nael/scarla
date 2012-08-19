@@ -26,7 +26,7 @@ class LiftMethodsPhase extends Phase[Tree, Tree] {
                 app.function = sel.memberName
                 app.arguments +:= sel.from
                 app.typeSymbol = null
-                println("Before typing : " + app)
+                
                 Typer.typeTree(app)
               } else app
             }

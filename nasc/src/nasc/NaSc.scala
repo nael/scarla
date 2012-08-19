@@ -46,9 +46,9 @@ object NaSc {
         else {
           println("test " + f.getName + " fails :")
           println("expected :")
-          println(exp toList)
+          println(exp)
           println("got :")
-          println(res toList)
+          println(res)
         }
       }
     }

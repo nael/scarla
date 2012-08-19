@@ -75,6 +75,7 @@ def sieve(n: Int): LL = {
   primes
 }
 
+native(__main) def main(): Unit = {
 val lim: Int = 42
 val tot1: Int = 2 * fsum(ints(lim))
 val tot2: Int = 2 * isum(ints(lim))
@@ -88,3 +89,4 @@ printSeq(primes)
 
 val ps: Int = fsum(primes)
 printInt(ps)
+}

@@ -118,7 +118,6 @@ class CodeGenPhase extends Phase[Tree, String] {
           case Some(s: Struct) => {
             td.typeName.symbol.typeInfo.vals.zipWithIndex foreach {
               case (x, i) => {
-                println("Choosing index " + i + " for " + td.typeName + " :: " + x)
                 x.storage = SymbolStorage.Index(i)
               }
             }

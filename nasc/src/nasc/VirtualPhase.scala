@@ -86,6 +86,7 @@ class VirtualPhase extends Phase[Tree, Tree] {
 
     td.value = Some(concrete)
     td.attr -= attributes.Move()
+    td.attr += attributes.CopyThis()
 
     traitVTables += ty -> vtSym
 
@@ -108,7 +109,7 @@ class VirtualPhase extends Phase[Tree, Tree] {
     s.composedTraits foreach { t =>
       val traitSym = t.symbol
       val ty = td.typeName.symbol
-      println(traitVTables)
+      
       val tableType = traitVTables(traitSym)
       val tableSym = new Symbol {
         def name = ty.uniqueName + "_to_" + traitSym.uniqueName + "_vt"
@@ -127,7 +128,7 @@ class VirtualPhase extends Phase[Tree, Tree] {
           }
       }
 
-      println("Override table : " + corres)
+      if(G.verbose) println("Override table : " + corres)
       val stubs = corres map {
         case (fun, null) => {
           fun

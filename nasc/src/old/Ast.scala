@@ -2,12 +2,12 @@ package nasc
 
 import java.io.ByteArrayOutputStream
 import java.io.PrintWriter
-
+/*
 object G {
   var verbose = true
   //val pp = new PrettyPrinter()
 }
-
+*/
 class CompilationUnit(var root: Tree) {
   override def toString() = root.toString()
 }

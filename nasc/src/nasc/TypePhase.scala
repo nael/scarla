@@ -364,7 +364,7 @@ object Typer {
     td.value match {
       case Some(st: Struct) => {
         val ts = typeTreeSymbol(td.typeName)
-        if (td.hasAttr[attributes.Move]) {
+        if (td.hasAttr[attributes.Move] || td.hasAttr[attributes.CopyThis]) {
           st.thisTree.symbol.typeSymbol = ts
           td
         } else {

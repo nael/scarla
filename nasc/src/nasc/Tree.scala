@@ -15,6 +15,9 @@ object attributes {
   case class Val extends TreeAttribute {
     override def toString = "val"
   }
+  case class CopyThis extends TreeAttribute {
+    override def toString = "copy_this"
+  }
 }
 
 trait Tree {

@@ -8,7 +8,7 @@ trait Phase[In, Out] extends AbstractPhase[In, Out] {
     val res = execute(input)
     G.pp.beginPhase(name)
     res match {
-      case t : Tree => G.pp.prettyPrint(t)
+      case t : Tree => G.pp.printLines(t.children toSeq)
       case s : String => G.pp.print(s)
       case _ => ()
     }
