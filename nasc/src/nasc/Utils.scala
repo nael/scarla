@@ -14,3 +14,20 @@ object Utils {
     } else "[" + s.uniqueName + " : " + (if (s.typeSymbol == null) "?" else s.typeSymbol) + "]"
   }
 }
+
+object TreeUtils {
+  def flattenBlocks(s: Seq[Tree]) = {
+    s flatMap {
+      case b: Block => b.children
+      case x => Seq(x)
+    }
+  }
+  def simplifyBlocks(tree: Tree) = // TODO users of this function are most likely trying to traverse global definitions 
+    tree transform {               // do it better ! (symbol.scope, symbol.parent, ... ?)
+      case b: Block => {
+        b.children = flattenBlocks(b.children)
+        b
+      }
+      case t => t
+    }
+}

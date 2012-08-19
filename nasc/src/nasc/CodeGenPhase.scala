@@ -22,7 +22,7 @@ object SymbolStorage {
 
   case class Ptr(name: String, ty: String) extends SymbolStorage {
     def genAccess(cg: CodeGenerator) = {
-      val valName = cg.freshLabel(name + "_val")
+      val valName = cg.freshName(name + "_val")
       cg.loadPtr(valName, ty + "* " + name)
       valName
     }
@@ -50,6 +50,7 @@ class CodeGenPhase extends Phase[Tree, String] {
       if (s == Builtin.Int.symbol) "i32"
       else if (s == Builtin.Unit.symbol) "void"
       else if (s == Builtin.Boolean.symbol) "i1"
+      else if (s == Builtin.CPtr.symbol) "i8*" // TODO store this correspondance somewhere else
       else if (Builtin.isFunction(s)) {
         typeLayout(Builtin.functionReturnType(s)) + "(" + (Builtin.functionArgTypes(s) map typeName mkString ", ") + ")*"
       } else s.definition match {
@@ -66,23 +67,67 @@ class CodeGenPhase extends Phase[Tree, String] {
     layout + (if (s.definition.hasAttr[attributes.Move]) "*" else "")
   }
 
-  def execute(tree: Tree): String = {
+  def execute(rawTree: Tree): String = {
     val os = new ByteArrayOutputStream()
     val cg = new CodeGenerator(os)
-
+    
+    val tree = TreeUtils.simplifyBlocks(rawTree)
+    
     tree traverse { case td: TypeDef if td.value != None => td.typeName.symbol.storage = SymbolStorage.Raw(cg.freshName(td.typeName.symbol.uniqueName)) }
     tree traverse {
       case td: TypeDef if td.value != None =>
         cg.writer.println(td.typeName.symbol.storage.asRaw.name + " = type " + typeLayout(td.typeName.symbol))
     }
+    tree.children foreach { //Global val's
+      case vd: ValDef => {
+        val sym = vd.valName.symbol
+        val llvmName = cg.freshGlobal(sym.uniqueName)
+        val llvmType = typeName(sym.typeSymbol)
+        sym.storage = SymbolStorage.Ptr(llvmName, llvmType)
+        cg.writer.println(llvmName + " = global " + llvmType + " undef")        
+      }
+      case _ => ()
+    }
 
     cg.prelude()
+    decideStorage(cg, tree)
     genDefs(cg, tree)
-    cg.beginMain()
+    /*cg.beginMain()
     genTree(cg, tree)
-    cg.endMain()
+    cg.endMain()*/
     cg.end()
     os.toString()
+  }
+
+  def decideStorage(cg: CodeGenerator, tree: Tree) = {
+    tree traverse {
+
+      case dd: DefDef => {
+        val nat = dd.attr collect { case attributes.Native(x) => x }
+        val llvmFunName = if (nat.isEmpty) {
+          if (dd.body.isEmpty) Utils.error("Non native function with empty body " + dd.defName)
+          cg.freshGlobal(dd.defName.symbol.uniqueName)
+        } else {
+          "@" + nat.head
+        }
+        dd.defName.symbol.storage = SymbolStorage.Raw(llvmFunName)
+      }
+
+      case td: TypeDef => {
+        td.value match {
+          case Some(s: Struct) => {
+            td.typeName.symbol.typeInfo.vals.zipWithIndex foreach {
+              case (x, i) => {
+                println("Choosing index " + i + " for " + td.typeName + " :: " + x)
+                x.storage = SymbolStorage.Index(i)
+              }
+            }
+          }
+          case _ => ()
+        }
+      }
+
+    }
   }
 
   def genDefs(cg: CodeGenerator, tree: Tree) = {
@@ -91,7 +136,7 @@ class CodeGenPhase extends Phase[Tree, String] {
       case dd: DefDef if !dd.body.isEmpty => {
 
         val fun = dd.defName.symbol
-        val llvmFunName = cg.freshGlobal(fun.uniqueName)
+        val llvmFunName = fun.storage.asRaw.name
         val args = dd.arguments map { _.argName.symbol }
         val llvmArgValNames = args map { arg => cg.freshName(arg.uniqueName + "_arg") }
         val llvmArgNames = args map { arg => cg.freshName(arg.uniqueName) }
@@ -99,7 +144,6 @@ class CodeGenPhase extends Phase[Tree, String] {
         val argTypes = Builtin.functionArgTypes(fun.typeSymbol)
         val retType = Builtin.functionReturnType(fun.typeSymbol)
 
-        fun.storage = SymbolStorage.Raw(llvmFunName)
         args zip llvmArgNames zip argTypes foreach { case ((arg, llvmArgName), argType) => arg.storage = SymbolStorage.Ptr(llvmArgName, typeName(argType)) }
 
         val argString = argTypes zip llvmArgValNames map { case (argType, llvmArgValName) => typeName(argType) + " " + llvmArgValName } mkString ", "
@@ -120,27 +164,8 @@ class CodeGenPhase extends Phase[Tree, String] {
         }
         cg.endFunction()
       }
-
-      case dd: DefDef => {
-        val nat = dd.attr collect { case attributes.Native(x) => x }
-        if (nat.isEmpty) Utils.error("Non-native function with no body made it through codegen : " + dd)
-        dd.defName.symbol.storage = SymbolStorage.Raw("@" + nat.head)
-      }
-
-      case td: TypeDef => {
-        td.value match {
-          case Some(s: Struct) => {
-            td.typeName.symbol.typeInfo.vals.zipWithIndex foreach {
-              case (x, i) => {
-                x.storage = SymbolStorage.Index(i)
-              }
-            }
-          }
-          case _ => ()
-        }
-      }
-
     }
+
   }
 
   def genPointer(cg: CodeGenerator, tree: Tree): String = {
@@ -162,7 +187,7 @@ class CodeGenPhase extends Phase[Tree, String] {
             res
 
           }
-          case _ => Utils.error("Select storage : " + mSym.storage)
+          case _ => Utils.error("Select storage : " + mSym.storage + " for " + sel.memberName)
         }
       }
       case _ => Utils.error("Cannot generate pointer to " + tree)
@@ -177,7 +202,8 @@ class CodeGenPhase extends Phase[Tree, String] {
       case b: Block if !b.children.isEmpty => b.children map { t => genTree(cg, t) } last
       case _: Block => "undef"
 
-      case s: Sym => {  s.symbol.storage.genAccess(cg) }
+      case s: Sym if s.symbol.storage != null =>  s.symbol.storage.genAccess(cg)
+      case s: Sym => Utils.error("Symbol " + s.symbol + " has no storage")
 
       case a: Apply => {
         val fTy = a.function.typeSymbol
@@ -242,6 +268,15 @@ class CodeGenPhase extends Phase[Tree, String] {
           case attr => Utils.error("Unsupported cast : -" + attr)
         }
         v
+      }
+      
+      case bc: cast.BitCast => {
+        val ptr = genTree(cg, bc.ptr)
+        val fromType = typeName(bc.ptr.typeSymbol)
+        val destType = typeName(bc.typeTree.symbol)
+        val c = cg.freshName()
+        cg.writer.println(c + " = bitcast " + fromType + " " + ptr + " to " + destType)
+        c
       }
 
       case sel: Select => {

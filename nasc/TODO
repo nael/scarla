@@ -3,9 +3,12 @@ BUGS:
 - verfier les types cycliques pour les struct (fait planter llvm)
 
 
-- ordre: traits + ovd + object, user-def F[T] (erasure? spec?), modules
--better symbol init. elegant cleartype(tree) (shallow,deep,...)
+Apres les traits :
+- GROS TODO CLEAN
+- verifier tout ce qui est fait avec des valuetype
 
+- ordre: traits + ovd + object, user-def F[T] (erasure? spec?), modules
+- better symbol init. elegant cleartype(tree) (shallow,deep,...)
 
 - normaliser les trucs privés ($, __, ?)
 

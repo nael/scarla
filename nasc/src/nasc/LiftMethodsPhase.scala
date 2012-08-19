@@ -20,12 +20,15 @@ class LiftMethodsPhase extends Phase[Tree, Tree] {
       app.function match {
         case sel: Select => {
           sel.from.typeSymbol.definition match {
-            case td: TypeDef if td.value exists { _.isInstanceOf[Struct] } => {
-              sel.memberName traverse { case t => t.typeSymbol = null }
-              app.function = sel.memberName
-              app.arguments :+= sel.from
-              app.typeSymbol = null
-              Typer.typeTree(app)
+            case td: TypeDef if td.value exists { v => v.isInstanceOf[Struct] } => {
+              if (sel.memberName.symbol.definition.isInstanceOf[DefDef]) {
+                sel.memberName traverse { case t => t.typeSymbol = null }
+                app.function = sel.memberName
+                app.arguments +:= sel.from
+                app.typeSymbol = null
+                println("Before typing : " + app)
+                Typer.typeTree(app)
+              } else app
             }
             case _ => app
           }
@@ -49,10 +52,11 @@ class LiftMethodsPhase extends Phase[Tree, Tree] {
           val tmpDef = new ValDef(new Sym(tmpSym), new Sym(n.typeSymbol), Some(n))
           tmpSym.definition = tmpDef
           val finalBlock = new Block(Seq(
-              tmpDef,
-              new Apply(new Sym(ctSym), new Sym(tmpSym) +: n.args),
-              new Sym(tmpSym)
+            tmpDef,
+            new Apply(new Sym(ctSym), new Sym(tmpSym) +: n.args),
+            new Sym(tmpSym)
           ))
+          n.args = Seq()
           Typer.typeTree(finalBlock)
         }
         case None => Utils.error("No constructor ?")
@@ -78,7 +82,7 @@ class LiftMethodsPhase extends Phase[Tree, Tree] {
     }
     val ctor = new DefDef(new Sym(ctorSym), s.arguments, new Sym(Builtin.Unit.symbol), Some(new Block(ctorBody)))
     ctorSym.definition = ctor
-    rest foreach { case vd: ValDef => vd.value = None case _ => ()}
+    rest foreach { case vd: ValDef => vd.value = None case _ => () }
     s.content = Typer.typeTree(new Block(rest.toSeq))
     constructors += ts -> ctorSym
     (s, (Typer.typeTree(ctor) +: methods.toSeq) map { _.asInstanceOf[DefDef] })

@@ -14,6 +14,8 @@ trait Symbol {
   var definition: Def
 
   var isType: Boolean
+  
+  // If it's a type symbol
   var typeInfo: TypeInfo = null
   var typeVars: Seq[(Symbol, Symbol)] = Seq()
   var derivedSymbols: Seq[Symbol] = Seq()

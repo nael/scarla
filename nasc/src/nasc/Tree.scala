@@ -12,6 +12,9 @@ object attributes {
   case class Move extends TreeAttribute {
     override def toString = "move"
   }
+  case class Val extends TreeAttribute {
+    override def toString = "val"
+  }
 }
 
 trait Tree {
@@ -27,7 +30,7 @@ trait Tree {
   def typeSymbol = if (typed) _typeSymbol else Utils.error("No type in " + this)
   def typeSymbol_=(o: Symbol) = { _typeSymbol = o }
   def typed = _typeSymbol != null
-  
+
   def attrString = attr.toSeq.map(_.toString + " ") mkString ""
 
   var attr: Set[TreeAttribute] = Set()
@@ -70,8 +73,20 @@ class Apply(var function: Tree, var arguments: Seq[Tree]) extends Tree {
 object cast {
   class TypeAttr(var add: Set[TreeAttribute], var remove: Set[TreeAttribute], var tree: Tree) extends Tree {
     def children = Seq(tree)
+
+    override def toString = "cast[" + ((add map { "+" + _ }) ++ (remove map { "-" + _ })).mkString(" ") + "](" + tree.toString + ")"
+  }
+
+  class BitCast(var ptr: Tree, var typeTree: Tree) extends Tree {
+    def children = Seq(ptr, typeTree)
+
+    override def toString = "cast[*" + typeTree.toString + "](" + ptr.toString + ")"
+  }
+  
+  class UpCast(var value: Tree, var typeTree: Tree) extends Tree {
+    def children = Seq(value, typeTree)
     
-    override def toString = "cast[" + ((add map {"+" + _}) ++ (remove map {"-" + _})).mkString(" ") + "](" + tree.toString + ")" 
+    override def toString = "cast[^" + typeTree.toString + "](" + value.toString + ")"
   }
 }
 
@@ -111,33 +126,61 @@ class Assign(var dest: Tree, var value: Tree) extends Tree {
   override def toString = dest.toString + " = " + value.toString
 }
 
+class ObjectDef(var objName: Tree, var body: Tree) extends Def {
+  def children = Seq(objName, body)
+
+  override def toString = "object " + objName.toString + " " + body.toString
+}
+
 trait Template extends Tree {
   def arguments: Seq[ArgDef]
   def children: Seq[Tree] = arguments
 }
 
-class Struct(var arguments: Seq[ArgDef], var content: Tree) extends Template {
-  var thisTree: Tree = new Name("this", false)
+class Struct(var arguments: Seq[ArgDef], var composedTraits: Seq[Tree], var content: Tree) extends Template {
+  var thisTree: Tree = new Sym(new Symbol {
+    def name = "this"
+    var typeSymbol: Symbol = null
+    var isType = false
+    var definition: Def = null
+  })
 
-  override def children = super.children :+ thisTree :+ content
+  override def children = super.children ++ composedTraits :+ thisTree :+ content
 
   override def toString = "struct(" + Utils.repsep(arguments.map(_.toString)) + ") " + content.toString
 }
 
 object Builtin {
-  case class Ty(name: String, ti: TypeInfo, tv: Seq[Symbol] = Seq()) {
+  case class Ty(name: String, ti: TypeInfo, tv: Seq[Symbol] = Seq(), attrs: Set[TreeAttribute] = Set()) {
     var symbol: Symbol = null
   }
 
-  val Int = Ty("Int", new TypeInfo { def members = Seq() })
-  val Boolean = Ty("Boolean", new TypeInfo { def members = Seq() })
-  val Unit = Ty("Unit", new TypeInfo { def members = Seq() })
+  val Int = Ty("Int", new TypeInfo {
+    def members = Seq()
+    def isDerived(s: Symbol) = false
+  })
+  val Boolean = Ty("Boolean", new TypeInfo {
+    def members = Seq()
+    def isDerived(s: Symbol) = false
+  })
+  val Unit = Ty("Unit", new TypeInfo {
+    def members = Seq()
+    def isDerived(s: Symbol) = false
+  })
+  val CPtr = Ty("CPtr", new TypeInfo {
+    def members = Seq()
+    def isDerived(s: Symbol) = false
+  })
 
   val Functions = (0 to 7) map { i =>
     Ty("Function",
-      new TypeInfo { def members = Seq() },
-      ((1 to i) map { j => makeTypeVar("Arg" + j) }) :+ makeTypeVar("Ret") toSeq) 
+      new TypeInfo {
+        def members = Seq()
+        def isDerived(s: Symbol) = false
+      },
+      ((1 to i) map { j => makeTypeVar("Arg" + j) }) :+ makeTypeVar("Ret") toSeq)
   }
+  val typeDefs = Seq(Int, Boolean, Unit, CPtr) ++ Functions map makeDef
 
   def makeTypeVar(s: String): Symbol = {
     new Symbol {
@@ -145,7 +188,10 @@ object Builtin {
       var typeSymbol: Symbol = null
       var isType = true
       var definition: Def = null
-      typeInfo = new TypeInfo { def members = Seq() }
+      typeInfo = new TypeInfo {
+        def members = Seq()
+        def isDerived(s: Symbol) = false
+      }
     }
   }
 
@@ -158,8 +204,6 @@ object Builtin {
   def functionReturnType(x: Symbol): Symbol = { Utils.assert(isFunction(x)); x.typeVars.last._2 }
   def functionArgTypes(x: Symbol): Seq[Symbol] = { Utils.assert(isFunction(x)); x.typeVars.dropRight(1) map { _._2 } toSeq }
   def isFunction(x: Symbol): Boolean = Functions exists { f => isTypeInstanceOf(x, f.symbol) }
-
-  val typeDefs = Seq(Int, Boolean, Unit) ++ Functions map makeDef
 
   def makeDef(ty: Ty): TypeDef = {
     val s = new Symbol {
@@ -176,14 +220,20 @@ object Builtin {
   }
 }
 
+class Trait(var body: Tree) extends Tree {
+  def children = Seq(body)
+
+  override def toString = "trait " + body.toString
+}
+
 class Block(var children: Seq[Tree]) extends Tree {
   override def toString = "{\n" + children.map(_.toString).mkString("\n") + "\n}"
 }
 
 class If(var condition: Tree, var ifTrue: Tree, var ifFalse: Tree) extends Tree {
   def children = Seq(condition, ifTrue, ifFalse)
-  
-  override def toString = "if(" + condition.toString + ") " + ifTrue.toString + (ifFalse match { case b: Block if b.children.isEmpty => "" case _ =>" else " + ifFalse.toString })
+
+  override def toString = "if(" + condition.toString + ") " + ifTrue.toString + (ifFalse match { case b: Block if b.children.isEmpty => "" case _ => " else " + ifFalse.toString })
 }
 
 class While(var condition: Tree, var body: Tree) extends Tree {
@@ -194,7 +244,7 @@ class While(var condition: Tree, var body: Tree) extends Tree {
 class Literal(var value: Any) extends Tree {
   def children = Seq()
 
-  override def toString = "[lit:" + (if(value == null) "()" else value.toString) + "]"
+  override def toString = "[lit:" + (if (value == null) "()" else value.toString) + "]"
 }
 
 class Name(override val name: String, val isTypeName: Boolean) extends Tree {
@@ -240,35 +290,39 @@ trait TreeTransform {
         a.arguments = transformSeq(a.arguments)
       }
       case ad: ArgDef => {
-        if(!exprOnly) ad.argName = transform(ad.argName)
-        if(!exprOnly) ad.typeTree = transform(ad.typeTree)
+        if (!exprOnly) ad.argName = transform(ad.argName)
+        if (!exprOnly) ad.typeTree = transform(ad.typeTree)
       }
       case vd: ValDef => {
-        if(!exprOnly) vd.valName = transform(vd.valName)
-        if(!exprOnly) vd.typeTree = transform(vd.typeTree)
+        if (!exprOnly) vd.valName = transform(vd.valName)
+        if (!exprOnly) vd.typeTree = transform(vd.typeTree)
         vd.value = vd.value.map { v => transform(v) }
       }
       case td: TypeDef => {
-        if(!exprOnly) td.typeName = transform(td.typeName)
+        if (!exprOnly) td.typeName = transform(td.typeName)
         td.value = td.value.map(transform)
       }
       case dd: DefDef => {
-        if(!exprOnly) dd.defName = transform(dd.defName)
-        if(!exprOnly) dd.arguments = transformSeq(dd.arguments).asInstanceOf[Seq[ArgDef]]
-        if(!exprOnly) dd.returnTypeTree = transform(dd.returnTypeTree)
+        if (!exprOnly) dd.defName = transform(dd.defName)
+        if (!exprOnly) dd.arguments = transformSeq(dd.arguments).asInstanceOf[Seq[ArgDef]]
+        if (!exprOnly) dd.returnTypeTree = transform(dd.returnTypeTree)
         dd.body = dd.body map transform
       }
       case s: Struct => {
-        if(!exprOnly) s.arguments = transformSeq(s.arguments).asInstanceOf[Seq[ArgDef]]
-        if(!exprOnly) s.thisTree = transform(s.thisTree)
+        if (!exprOnly) s.arguments = transformSeq(s.arguments).asInstanceOf[Seq[ArgDef]]
+        if (!exprOnly) s.thisTree = transform(s.thisTree)
+        s.composedTraits = transformSeq(s.composedTraits)
         s.content = transform(s.content)
+      }
+      case t: Trait => {
+        t.body = transform(t.body)
       }
       case b: Block => {
         b.children = transformSeq(b.children)
       }
       case s: Select => {
         s.from = transform(s.from)
-        if(!exprOnly) s.memberName = transform(s.memberName)
+        if (!exprOnly) s.memberName = transform(s.memberName)
       }
       case a: Assign => {
         a.dest = transform(a.dest)
@@ -284,11 +338,23 @@ trait TreeTransform {
         w.body = transform(w.body)
       }
       case n: New => {
-        if(!exprOnly) n.args = transformSeq(n.args)
-        if(!exprOnly) n.typeTree = transform(n.typeTree)
+        if (!exprOnly) n.args = transformSeq(n.args)
+        if (!exprOnly) n.typeTree = transform(n.typeTree)
+      }
+      case o: ObjectDef => {
+        if (!exprOnly) o.objName = transform(o.objName)
+        o.body = transform(o.body)
       }
       case ta: cast.TypeAttr => {
         ta.tree = transform(ta.tree)
+      }
+      case bc: cast.BitCast => {
+        bc.ptr = transform(bc.ptr)
+        if (!exprOnly) bc.typeTree = transform(bc.typeTree)
+      }
+      case uc: cast.UpCast => {
+        uc.value = transform(uc.value)
+        if (!exprOnly) uc.typeTree = transform(uc.typeTree)
       }
       case _: Literal => ()
       case _: Name => ()

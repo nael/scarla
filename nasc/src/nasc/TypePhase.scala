@@ -2,8 +2,9 @@ package nasc
 
 trait TypeInfo {
   def members: Seq[Symbol]
+  def derived: Seq[Symbol] = Seq()
 
-  def vals = members filter { m => m.definition != null && m.definition.isInstanceOf[ValDef] }
+  def vals = members filter { m => m.definition != null && (m.definition.isInstanceOf[ValDef]) }
 }
 
 case class Conversion(from: Symbol, to: Symbol, conv: Tree => Tree)
@@ -29,17 +30,38 @@ object Typer {
     var isType = true
     var definition: Def = null
 
-    typeInfo = new TypeInfo { def members = Seq() }
+    typeInfo = new TypeInfo {
+      def members = Seq()
+    }
   }
 
   def typeTree(t: Tree): Tree = {
-    t transform { case d: TypeDef => makeThis(d) }
-    val typeDefs = t collect { case d: TypeDef => d }
+    val tt = t transform { case d: TypeDef => makeThis(d) } transform { case s: Struct => expandValCtor(s) }
+    val typeDefs = tt collect { case d: TypeDef => d }
     populateTypeInfos(typeDefs)
 
     val typer = new TypeTransform()
-    val typedTree = typer.transform(t)
-    t
+    val typedTree = typer.transform(tt)
+    typedTree
+  }
+
+  def expandValCtor(s: Struct): Struct = {
+    var vds = Seq[Tree]()
+    s.arguments filter { _.hasAttr[attributes.Val] } foreach { arg =>
+      arg.attr -= attributes.Val()
+      val argSym = new Symbol {
+        val name = arg.argName.name
+        var typeSymbol: Symbol = null
+        var isType = false
+        var definition: Def = arg
+      }
+      val vd = new ValDef(arg.argName, arg.typeTree, Some(new Sym(argSym)))
+      arg.argName.symbol.definition = vd
+      vds :+= vd
+      arg.argName = new Sym(argSym)
+    }
+    s.content.asInstanceOf[Block].children ++= vds //TODO berk cast
+    s
   }
 
   // Takes a type tree and return all possible overloaded type symbols
@@ -64,7 +86,7 @@ object Typer {
                   val newSym = new Symbol {
                     def name = {
                       val extractedLocalValue = Utils.repsep(typeVals map { _.toString })
-                      s + "[" + extractedLocalValue +  ("]")
+                      s + "[" + extractedLocalValue + ("]")
                     }
                     var typeSymbol: Symbol = null
                     var isType = true
@@ -95,12 +117,11 @@ object Typer {
 
   def convert(tree: Tree, to: Symbol): Option[Tree] = {
     Utils.assert(tree.typed && to.isType)
-//    println("Trying conversion " + to + " -> " + tree.typeSymbol + " --- " + tree)
+    //    println("Trying conversion " + to + " -> " + tree.typeSymbol + " --- " + tree)
     if (tree.typeSymbol == to) return Some(tree)
-    else if(to == Builtin.Unit.symbol) {
+    else if (to == Builtin.Unit.symbol) {
       Some(Typer.typeTree(new Block(Seq(tree, new Literal(null)))))
-    }
-    else {
+    } else {
       Glob.conversions find { x => x.from == tree.typeSymbol && x.to == to } map { conv =>
         Typer.typeTree(conv.conv(tree))
       }
@@ -132,7 +153,7 @@ object Typer {
           case _ => null
         }
 
-        if (s.typed)
+        if (s.typed) // TODO Seems magic but maybe useful ?
           s.symbol.typeSymbol = s.typeSymbol
         s
       }
@@ -147,8 +168,8 @@ object Typer {
               sel
             }
             case None => sel
-          } // Todo overloads ...
-        } else sel
+          } // TODO overloads ...
+        } else { println("Couldnt type " + sel + " because " + sel.from + " is not typed"); sel }
       }
 
       case a: Assign if !a.typed => {
@@ -197,6 +218,10 @@ object Typer {
         s.typeSymbol = NoType; s
       }
 
+      case t: Trait if !t.typed => {
+        t.typeSymbol = NoType; t
+      }
+
       case ta: cast.TypeAttr if !ta.typed => {
         if (ta.tree.typed) {
           val ty = ta.tree.typeSymbol
@@ -210,24 +235,38 @@ object Typer {
           ta
         } else ta
       }
-      
-      case i: If if !i.typed => {
-        if(i.condition.typed && i.ifTrue.typed && i.ifFalse.typed) {
-          (convert(i.condition, Builtin.Boolean.symbol), convert(i.ifTrue, i.ifFalse.typeSymbol)) match { // TODO haveCommonConv
 
+      case bc: cast.BitCast if !bc.typed => {
+        if (bc.ptr.typed) {
+          bc.typeSymbol = typeTreeSymbol(bc.typeTree)
+          bc
+        } else bc
+      }
+
+      case uc: cast.UpCast if !uc.typed => {
+        if (uc.value.typed) {
+          //TODO check if uc.value.typeSymbol implements uc.typeTree
+          uc.typeSymbol = typeTreeSymbol(uc.typeTree)
+          uc
+        } else uc
+      }
+
+      case i: If if !i.typed => {
+        if (i.condition.typed && i.ifTrue.typed && i.ifFalse.typed) {
+          (convert(i.condition, Builtin.Boolean.symbol), convert(i.ifTrue, i.ifFalse.typeSymbol)) match { // TODO haveCommonConv
             case (Some(cond), Some(tb)) => {
               i.condition = cond
               i.ifTrue = tb
               i.typeSymbol = i.ifFalse.typeSymbol
             }
-                        case _ => ()
+            case _ => ()
           }
           i
         } else i
       }
-      
+
       case w: While if !w.typed => {
-        if(w.condition.typed && w.body.typed) {
+        if (w.condition.typed && w.body.typed) {
           convert(w.condition, Builtin.Boolean.symbol) match {
             case Some(cond) => {
               w.condition = cond
@@ -248,10 +287,10 @@ object Typer {
         }
         l
       }
-      
+
       case n: New if !n.typed => {
-        if(n.typeTree.typed) {
-          //TODO check ctor args
+        if (n.typeTree.typed) {
+          //TODO check ctor args correctness
           n.typeSymbol = typeTreeSymbol(n.typeTree)
           n
         } else n
@@ -261,7 +300,7 @@ object Typer {
         if (a.function.typed && a.arguments.forall(_.typed)) {
           if (Builtin.isFunction(a.function.typeSymbol)) {
             val fArgTypes = Builtin.functionArgTypes(a.function.typeSymbol)
-            if (fArgTypes.size != a.arguments.size) Utils.error("Wrong argument count")
+            if (fArgTypes.size != a.arguments.size) Utils.error("Wrong argument count for " + a.function + " got " + a.arguments.size + " expected " + fArgTypes.size)
             val args = (fArgTypes zip a.arguments) map { case (ty, arg) => convert(arg, ty) }
             if (args.contains(None)) Utils.error("Wrong arg type : " + fArgTypes + " / " + a.arguments)
 
@@ -277,16 +316,36 @@ object Typer {
   }
 
   // TODO here linearization of types & ... for now it just proceed in order and can fail (horribly)
+  // also verify concrete types do not lack any unimplemented members
   def populateTypeInfos(tds: Seq[TypeDef]) = {
-    tds foreach { td =>
+    tds.reverse foreach { td =>
       val ts = typeTreeSymbol(td.typeName)
       td.value foreach {
         case st: Struct => {
           val m = st.content.children collect {
             case vd: ValDef => vd.valName.symbol
             case dd: DefDef => dd.defName.symbol
+          } toSeq
+          val composed = st.composedTraits flatMap { _.symbol.typeInfo.members } // Worst way possible
+          ts.typeInfo = new TypeInfo {
+            override val derived = composed filter { s => !(m map { _.name } contains s.name) } // again
+            def members = m
           }
-          ts.typeInfo = new TypeInfo { def members = m.toSeq }
+
+          st.composedTraits foreach { tr =>
+            Glob.conversions +:= Conversion(ts, tr.symbol, { t =>
+              new cast.UpCast(t, new Sym(tr.symbol))
+            })
+          }
+        }
+        case t: Trait => {
+          val m = t.body.children collect {
+            case vd: ValDef => vd.valName.symbol
+            case dd: DefDef => dd.defName.symbol
+          }
+          ts.typeInfo = new TypeInfo {
+            def members = m.toSeq
+          }
         }
         case s: Sym => {
           Utils.assert(s.symbol.typeInfo != null)
@@ -313,7 +372,7 @@ object Typer {
             sym.typeVars == ts.typeVars && sym.definition.hasAttr[attributes.Move]
           } match {
             case None => {
-              val ptrSym = new Symbol {
+              val ptrSym = new Symbol { // TODO way too ugly, time for type Ptr[T] = move T ?
                 def name = td.typeName.name + "Ptr"
                 var typeSymbol: Symbol = null
                 var isType = true
@@ -349,7 +408,7 @@ object Typer {
       println("Untyped trees : " + untyped.map(_.toString))
       ok = false
     } else {
-      if(G.verbose) println("Whole tree is typed !")
+      if (G.verbose) println("Whole tree is typed !")
     }
 
     val syms = (t collect { case x if x.hasSymbol => x.symbol }) ++ (t collect { case x if x.typed => x.typeSymbol })
@@ -373,7 +432,7 @@ object Typer {
       failed.toSet foreach { s: Sym =>
         println(s.symbol + " : " + s.typeSymbol + " != " + s.symbol.typeSymbol)
       }
-      ok = false
+      //ok = false//TODO XXXXXX
     }
 
     if (!ok) {

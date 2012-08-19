@@ -39,9 +39,10 @@ class CodeGenerator(val dest: OutputStream) {
   }
 
   def freshLabel(s: String) = {
-    val i = varNames.getOrElse(s, 0)
-    varNames(s) = i + 1
-    s + (if (i == 0 && s != "") "" else "_" + i.toString())
+    val ss = s.replace("%", "").replace("@", "")
+    val i = varNames.getOrElse(ss, 0)
+    varNames(ss) = i + 1
+    ss + (if (i == 0 && ss != "") "" else "_" + i.toString())
   }
 
   def assign(a: String, b: String) = {

@@ -4,7 +4,7 @@ import scala.util.parsing.combinator._
 
 object Grammar extends RegexParsers {
 
-  val id = """[a-zA-Z]([a-zA-Z0-9_])*"""r
+  val id = """[a-zA-Z_]([a-zA-Z0-9_])*"""r
   val integerLiteral = """[0-9]+"""r
   val booleanLiteral = """true|false"""
   val operators = """\+|-|\*|==|<="""r
@@ -26,25 +26,49 @@ object Grammar extends RegexParsers {
       new ValDef(new Name(vn, false), ty, value)
     //case "var" ~ valName ~ _ ~ ty ~ value => t.ValDef(t.Id(valName), ty, value) //TODO mutability
   }
+  def optExtends: Parser[Seq[Tree]] = (("extends" ~ repsep(typeExpr, "with"))?) ^^ { case None => Seq() case Some(_ ~ tr) => tr }
 
-  def structDef: Parser[Tree] =
-    ("value" ^^ { _ => true } | "" ^^ { _ => false }) ~ "class" ~ id ~ optArgSeq /*~ optExtends */ ~ block ^^
-      {
-        case isValue ~ _ ~ structName ~ ctorArgs /*~ traits*/ ~ body => {
-          val td = new TypeDef(new Name(structName, true), Seq(), Some(new Struct(ctorArgs, body)))
-          if (!isValue) {
-            td.attr += attributes.Heap()
-            td.attr += attributes.Move()
-          }
-          td
+  def structDef: Parser[Tree] = (
+    ("value" ^^ { _ => true } | "" ^^ { _ => false }) ~ "class" ~ id ~ optArgSeq ~ optExtends ~ block ^^
+    {
+      case isValue ~ _ ~ structName ~ ctorArgs ~ traits ~ body => {
+        val td = new TypeDef(new Name(structName, true), Seq(), Some(new Struct(ctorArgs, traits, body)))
+        if (!isValue) {
+          td.attr += attributes.Heap()
+          td.attr += attributes.Move()
         }
+        td
       }
+    }
+    | "trait" ~ id /*~ optExtends */ ~ block ^^
+    {
+      case _ ~ traitName ~ /*~ traits*/ body => {
+        val td = new TypeDef(new Name(traitName, true), Seq(), Some(new Trait(body)))
+        td.attr += attributes.Move()
+        td
+      }
+    }
+    | "object" ~ id ~ block ^^
+    {
+      case _ ~ objName ~ body => {
+        new ObjectDef(new Name(objName, false), body)
+      }
+    }
+  )
 
   def argSeq = repsep(expr, ',') ^^ { _ toSeq }
   def arg = id ~ ":" ~ typeExpr ^^ {
     case name ~ _ ~ ty => (new Name(name, false), ty)
   }
-  def funArgSeq = repsep(arg, ",") ^^ { argSeq => argSeq.map { arg => new ArgDef(arg._1, arg._2) } }
+  def funArgSeq = repsep(("val"?) ~ arg, ",") ^^ { argSeq =>
+    argSeq.map {
+      case u ~ arg => {
+        val ad = new ArgDef(arg._1, arg._2)
+        if (!u.isEmpty) ad.attr += attributes.Val()
+        ad
+      }
+    }
+  }
 
   def optArgSeq = (("(" ~> funArgSeq <~ ")")?) ^^ { case None => Seq() case Some(x) => x }
   def funDef = "def" ~ (id | operators) ~ "(" ~ funArgSeq ~ ")" ~ ":" ~ typeExpr ~ (("=" ~ expr)?) ^^
@@ -58,7 +82,6 @@ object Grammar extends RegexParsers {
   def stmt = ((("native(" ~ id ~ ")")?) ~ funDef ^^ { case None ~ d => d case Some(_ ~ nid ~ _) ~ d => { d.attr += attributes.Native(nid); d } }
     | valDef
     | structDef
-    //| traitDef
     | expr)
   def blockSep = (";" | "\n" | whiteSpace)
   def block = ("{" ~> (blockSep*) ~> repsep(stmt, blockSep+) <~ (blockSep*) <~ "}") ^^ { x => new Block(x) }
@@ -96,9 +119,9 @@ object Grammar extends RegexParsers {
     (lvExpr ~ "(" ~ argSeq ~ ")") ^^ { case e ~ _ ~ args ~ _ => new Apply(e, args) }
     | lvExpr)
   def lvExpr: Parser[Tree] = (
-      "new " ~ id ~ (("(" ~ argSeq ~ ")")?) ^^ {case _ ~ cname ~ args  => new New(new Name(cname, true), args map { case _ ~ x ~ _ => x} getOrElse(Seq()))} |
-     ("true"r) ^^ { _ => new Literal(true) }
-  | ("false"r) ^^ { _ => new Literal(false) } | lvalue | atom)
+    "new " ~ id ~ (("(" ~ argSeq ~ ")")?) ^^ { case _ ~ cname ~ args => new New(new Name(cname, true), args map { case _ ~ x ~ _ => x } getOrElse (Seq())) } |
+    ("true"r) ^^ { _ => new Literal(true) }
+    | ("false"r) ^^ { _ => new Literal(false) } | lvalue | atom)
   def atom: Parser[Tree] = (
     /* "@".r ~ id ^^ { case _ ~ id => PtrRef(Id(id)) }
     |*/ literal | ("(" ~ expr ~ ")") ^^ { case _ ~ e ~ _ => e })

@@ -83,13 +83,16 @@ class SymPhase extends Phase[Tree, Tree] {
             var definition: Def = dd
           })
         }
-        case st: Struct => {
-          add(st.thisTree, thisName => new Symbol {
-            def name = thisName
+        case od: ObjectDef => {
+          add(od.objName, objName => new Symbol {
+            def name = objName
             var typeSymbol: Symbol = null
             var isType = false
-            var definition: Def = null
+            var definition: Def = od
           })
+        }
+        case st: Struct => {
+          add(st.thisTree, _ => st.thisTree.symbol)
         }
         case _ => ctx
       }

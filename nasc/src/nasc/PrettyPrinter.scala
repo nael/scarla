@@ -1,16 +1,16 @@
-/*package nasc
+package nasc
 import java.io.FileWriter
 
 class PrettyPrinter {
   var out: StringBuilder = null
 
-  def withStyle(style: String, data : Map[String, String] = Map())(x: String): String =
-    "<span class=\"" + style + "\" " + (data.map { case (k,v) => "data-" + k + "=\"" + v + "\" " }).mkString(" ") + "  >" + x + "</span>"
-  def ident(s : String) = withStyle("identifier")(normIdent(s))
-  def symbol(s : IdSymbol) = {
+  def withStyle(style: String, data: Map[String, String] = Map())(x: String): String =
+    "<span class=\"" + style + "\" " + (data.map { case (k, v) => "data-" + k + "=\"" + v + "\" " }).mkString(" ") + "  >" + x + "</span>"
+  def ident(s: String) = withStyle("identifier")(normIdent(s))
+  def symbol(s: Symbol) = {
     var data = Map[String, String]()
     data ++= Map("uniqueName" -> s.uniqueName)
-    if(s.typed) data ++= Map("type" -> s.ty.toString)
+    if (s.typed) data ++= Map("type" -> s.typeSymbol.toString)
     withStyle("symbol", data)(s.name)
   }
   def literal = withStyle("literal") _
@@ -18,9 +18,9 @@ class PrettyPrinter {
   def typeName = withStyle("typeName") _
   def bracket = withStyle("bracket") _
   def decl = withStyle("decl") _
-  
-  def normIdent(s : String) = s
-  
+
+  def normIdent(s: String) = s
+
   def beginBlock() = out ++= "<div class=\"codeBlock\">"
   def endBlock() = out ++= "</div>"
 
@@ -98,79 +98,151 @@ class PrettyPrinter {
   def endPhase() = out ++= "</div><br/>"
 
   def mustPrint(x: Tree) = x match {
-    case _: BuiltinFunDef => false
-    case _: BuiltinTypeDef => false
     case _ => true
   }
 
-  def printSymbol(s: IdSymbol) = {
+  def printSymbol(s: Symbol) = {
     out ++= symbol(s)
   }
 
-  def printSymbolOr(s: IdSymbol, ss: String) = {
+  def printSymbolOr(s: Symbol, ss: String) = {
     if (s == null) out ++= ident(ss)
     else printSymbol(s)
   }
 
+  def printAttrs(x: Tree) = {
+    out ++= x.attrString
+  }
+
   def prettyPrint(x: Tree): Unit = x match {
-    case Block(Seq()) => out ++= bracket("{") + "()" + bracket("}")
-    case Block(Seq(y)) => prettyPrint(y)
-    case Block(xs) => {
-      out ++= bracket("{") + "<br/>"
-      beginBlock()
-      xs.foreach { s => if (mustPrint(s)) { prettyPrint(s); out ++= "<br/>" } }
-      endBlock()
-      out ++= bracket("}")
+    case b: Block => {
+      if (b.children.size == 0) {
+        out ++= bracket("{") + "()" + bracket("}")
+        /*} else if (b.children.size == 1) {
+        prettyPrint(b.children.head)*/
+      } else {
+        out ++= bracket("{") + "<br/>"
+        beginBlock()
+
+        def printLines(ss: Seq[Tree]): Unit = {
+          ss foreach { s =>
+            if (mustPrint(s)) {
+              s match {
+                case b: Block => printLines(b.children)
+                case _ => { prettyPrint(s); out ++= "<br/>" }
+              }
+            }
+          }
+        }
+
+        printLines(b.children)
+        endBlock()
+        out ++= bracket("}")
+      }
     }
-    case id : Id => {
-      printSymbolOr(id.symbol, id.name)
+    case n: Name => {
+      out ++= n.name
     }
-    case lit: Literal[_] => {
+    case s: Sym => {
+      out ++= symbol(s.symbol)
+    }
+    case lit: Literal => {
       out ++= literal(lit.value.toString)
     }
-    case vd @ ValDefinition(name, typeExpr, valueOpt, mutable) => {
-      out ++= keyword(if (mutable) "var" else "val")
+    case vd: ValDef => {
+      out ++= keyword( /*if (mutable) */ "var" /* else "val"*/ )
       out ++= " "
-      printSymbolOr(vd.valSymbol, name)
+      prettyPrint(vd.valName)
       out ++= " : "
-      printTypeExpr(typeExpr)
-      valueOpt.map { value =>
+      printTypeExpr(vd.typeTree)
+      vd.value.foreach { value =>
         out ++= " = "
         prettyPrint(value)
       }
     }
-    case Assign(lv, v) => {
-      prettyPrint(lv)
-      out ++= " = "
-      prettyPrint(v)
+    case d: DefDef => {
+      printAttrs(d)
+      out ++= keyword("def")
+      out ++= " "
+      prettyPrint(d.defName)
+      out ++= "("
+      prettyPrintSeq(d.arguments)
+      out ++= ")"
+      d.body foreach { t =>
+        out ++= " = "
+        prettyPrint(t)
+      }
     }
-    case If(cond, tb, fb) => {
+    case a: ArgDef => {
+      prettyPrint(a.argName)
+      out ++= " : "
+      printTypeExpr(a.typeTree)
+    }
+    case t: Trait => {
+      out ++= keyword("trait")
+      out ++= " "
+      prettyPrint(t.body)
+    }
+    case s: Struct => {
+      out ++= keyword("struct")
+      out ++= "("
+      prettyPrintSeq(s.arguments)
+      out ++= ") "
+      if (!s.composedTraits.isEmpty) {
+        out ++= "< "
+        prettyPrintSeq(s.composedTraits)
+        out ++= " "
+      }
+      prettyPrint(s.content)
+    }
+    case td: TypeDef => {
+      printAttrs(td)
+      out ++= keyword("type")
+      out ++= " "
+      prettyPrint(td.typeName)
+      out ++= "["
+      prettyPrintSeq(td.typeVars)
+      out ++= "]"
+      td.value foreach { v =>
+        out ++= " = "
+        prettyPrint(v)
+      }
+    }
+    case a: Assign => {
+      prettyPrint(a.dest)
+      out ++= " = "
+      prettyPrint(a.value)
+    }
+    case i: If => {
       out ++= keyword("if")
       out ++= "("
-      prettyPrint(cond)
+      prettyPrint(i.condition)
       out ++= ") "
-      prettyPrint(tb)
+      prettyPrint(i.ifTrue)
       out ++= keyword(" else ")
-      prettyPrint(fb)
+      prettyPrint(i.ifFalse)
     }
-    case Call(f, args) => {
-      prettyPrint(f)
+    case a: Apply => {
+      prettyPrint(a.function)
       out ++= "("
-      prettyPrintSeq(args)
+      prettyPrintSeq(a.arguments)
       out ++= ")"
     }
-    case Select(e, f) => {
-      prettyPrint(e)
+    case s: Select => {
+      prettyPrint(s.from)
       out ++= "."
-      out ++= ident(f)
+      prettyPrint(s.memberName)
     }
-    case ExternFunDef(name, llname, ty, redec) => {
-      out ++= keyword("extern")
-      out ++= " " + name + " : "
-      out ++= ty.toString
+    case n: New => {
+      out ++= keyword("new")
+      out ++= " "
+      prettyPrint(n.typeTree)
+      out ++= "("
+      prettyPrintSeq(n.args)
+      out ++= ")"
     }
-    case StructDefinition(name, args, traits, body, isVal) => {
-      out ++= keyword(if(isVal) "struct" else "class")
+    /*case StructDefinition(name, args, traits, body, isVal) => {
+      out ++= keyword(if (isVal) "struct" else "class")
       out ++= " " + name + " ("
       prettyPrintArgs(args)
       out ++= ") "
@@ -185,25 +257,30 @@ class PrettyPrinter {
       printTypeExpr(retTe)
       out ++= " = "
       prettyPrint(body)
+    }*/
+    case w: While => {
+      out ++= keyword("while") + "("
+      prettyPrint(w.condition)
+      out ++= ") "
+      prettyPrint(w.body)
     }
-    case While(cond, body) => {
-    	out ++= keyword("while") + "("
-    	prettyPrint(cond)
-    	out ++= ") "
-    	prettyPrint(body)
-    }
-    
-    case PtrRef(x) => {
-      out ++= "&"
-      prettyPrint(x)
-    }
-    
-    case PtrDeref(x) => {
-      out ++= "(*"
-      prettyPrint(x)
+    case bc: cast.BitCast => {
+      out ++= keyword("bcast")
+      out ++= "["
+      printTypeExpr(bc.typeTree)
+      out ++= "]("
+      prettyPrint(bc.ptr)
       out ++= ")"
     }
-    
+    case uc: cast.UpCast => {
+      out ++= keyword("ucast")
+      out ++= "["
+      printTypeExpr(uc.typeTree)
+      out ++= "]("
+      prettyPrint(uc.value)
+      out ++= ")"
+    }
+
     case _ => { if (mustPrint(x)) out ++= "[" + x.getClass() + "]" else () }
   }
 
@@ -214,18 +291,20 @@ class PrettyPrinter {
 
   def prettyPrintSeq(l: Seq[Tree]) = printSeq(l)(prettyPrint)
 
-  def prettyPrintArgs(args: Seq[Definition.Argument]) = printSeq(args) { arg => printSymbolOr(arg.symbol, arg.name); out ++= " : "; printTypeExpr(arg.typeExpr) }
+  def prettyPrintArgs(args: Seq[ArgDef]) = printSeq(args) { arg => prettyPrint(arg.argName); out ++= " : "; printTypeExpr(arg.typeTree) }
 
   def print(s: String) = out ++= s.replace("\n", "<br/>")
 
-  def printTypeExpr(te: TypeExpr): Unit = {
+  def printTypeExpr(te: Tree): Unit = {
     te match {
-      case TypeId(name) => out ++= typeName(name)
-      case TypeApply(name, args) => {
-        out ++= typeName(name)
+      case n: Name => out ++= typeName(n.name)
+      case s: Sym => out ++= symbol(s.symbol)
+      case a: Apply => {
+        printTypeExpr(a.function)
         out ++= "["
-        printTypeExpr(args.reduce { (a1, a2) => printTypeExpr(a1); out ++= ", "; a2 })
+        printTypeExpr(a.arguments.reduce { (a1, a2) => printTypeExpr(a1); out ++= ", "; a2 })
+        out ++= "]"
       }
     }
   }
-}*/ 
+} 
