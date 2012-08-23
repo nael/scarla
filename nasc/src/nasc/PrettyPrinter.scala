@@ -239,23 +239,7 @@ class PrettyPrinter {
       prettyPrintSeq(n.args)
       out ++= ")"
     }
-    /*case StructDefinition(name, args, traits, body, isVal) => {
-      out ++= keyword(if (isVal) "struct" else "class")
-      out ++= " " + name + " ("
-      prettyPrintArgs(args)
-      out ++= ") "
-      prettyPrint(body)
-    }
-    case fd @ FunctionDefinition(name, args, body, retTe) => {
-      out ++= keyword("def") + " "
-      printSymbolOr(fd.funSymbol, name)
-      out ++= "("
-      prettyPrintArgs(args)
-      out ++= ") : "
-      printTypeExpr(retTe)
-      out ++= " = "
-      prettyPrint(body)
-    }*/
+
     case w: While => {
       out ++= keyword("while") + "("
       prettyPrint(w.condition)

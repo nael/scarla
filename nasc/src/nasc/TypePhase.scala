@@ -118,7 +118,7 @@ object Typer {
   def convert(tree: Tree, to: Symbol): Option[Tree] = {
     Utils.assert(tree.typed && to.isType)
     //    println("Trying conversion " + to + " -> " + tree.typeSymbol + " --- " + tree)
-    if (tree.typeSymbol == to) return Some(tree)
+    if (tree.typeSymbol == to) Some(tree)
     else if (to == Builtin.Unit.symbol) {
       Some(Typer.typeTree(new Block(Seq(tree, new Literal(null)))))
     } else {
@@ -207,6 +207,7 @@ object Typer {
               }
             }
           }
+          // case DefDef TODO check return type
           case _ => {
             d.typeSymbol = Builtin.Unit.symbol
           }

@@ -19,7 +19,4 @@ $(document).ready(function(){
 			}
 		});
 	});
-	$("").click(function() {
-		$("#p1code").toggle("slide");
-	});
 });

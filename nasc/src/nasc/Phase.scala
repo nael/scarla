@@ -15,7 +15,7 @@ trait Phase[In, Out] extends AbstractPhase[In, Out] {
     
     G.pp.endPhase()
     if (G.verbose) println(res)
-    return res
+    res
   }
 }
 

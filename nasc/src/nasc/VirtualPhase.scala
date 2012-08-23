@@ -13,6 +13,9 @@ class VirtualPhase extends Phase[Tree, Tree] {
 
   // upcasts(A,B) is the symbol of the globally defined vtable for interface B on concrete type A
   var upcasts = Map[(Symbol, Symbol), Symbol]()
+  
+  // links the symbol of a method to an eventual default implementation provided by the trait definition
+  var defaultImplemetations = Map[Symbol, Symbol]()
 
   def buildVTable(td: TypeDef, t: Trait): Tree = {
     val ty = td.typeName.symbol
@@ -22,7 +25,7 @@ class VirtualPhase extends Phase[Tree, Tree] {
 
     val vtPtrs = funDefs map { dd =>
       val dps = new Symbol {
-        def name = dd.defName.symbol.name + "_ptr"
+        val name = dd.defName.symbol.name + "_ptr"
         var typeSymbol: Symbol = null
         var isType = false
         var definition: Def = null
@@ -36,6 +39,23 @@ class VirtualPhase extends Phase[Tree, Tree] {
       vd.attr += attributes.Val()
       vd
     }
+    
+    // If trait provides a default implementations
+    val defaultImpls = funDefs flatMap { dd =>
+      dd.body map { default =>
+        val defaultSym = new Symbol {
+          val name = dd.defName.symbol.name + "_default"
+          var typeSymbol: Symbol = null
+          var isType = false
+          var definition: Def = null
+        }
+        defaultImplemetations += dd.defName.symbol -> defaultSym
+        val ddd = new DefDef(new Sym(defaultSym), dd.arguments, dd.returnTypeTree, dd.body)
+        defaultSym.definition = ddd
+        ddd
+      }
+    }
+    
     val vtSym = new Symbol {
       def name = ty + "_vt"
       var typeSymbol: Symbol = null
@@ -82,7 +102,7 @@ class VirtualPhase extends Phase[Tree, Tree] {
       objPtrDef,
       vtPtrDef
     )
-    concrete.content = new Block(funDefs)
+    concrete.content = new Block(funDefs ++ defaultImpls)
 
     td.value = Some(concrete)
     td.attr -= attributes.Move()
@@ -131,7 +151,7 @@ class VirtualPhase extends Phase[Tree, Tree] {
       if(G.verbose) println("Override table : " + corres)
       val stubs = corres map {
         case (fun, null) => {
-          fun
+          defaultImplemetations get fun getOrElse { Utils.error("No default impl and no implemented. Should have failed typing earlier") }
         }
         case (fun, fptr) => {
           val stubSym = new Symbol {

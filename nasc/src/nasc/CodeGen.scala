@@ -6,7 +6,7 @@ import java.io.ByteArrayOutputStream
 object CodeGenerator {
   def toFile(fileName: String): CodeGenerator = {
     val os = new FileOutputStream(fileName)
-    return new CodeGenerator(os)
+    new CodeGenerator(os)
   }
 }
 
