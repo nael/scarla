@@ -6,7 +6,7 @@ object Grammar extends RegexParsers {
 
   val id = """[a-zA-Z_]([a-zA-Z0-9_])*"""r
   val integerLiteral = """[0-9]+"""r
-  val booleanLiteral = """true|false"""
+  val booleanLiteral = """true|false"""r
   val operators = """\+|-|\*|(==)|(<=)|<|(>=)|>|/|%"""r
 
   override protected val whiteSpace = """( |\t|\r)+""".r
@@ -21,8 +21,10 @@ object Grammar extends RegexParsers {
     | funTypeExpr
     | id ^^ { s => new Name(s, true) })
 
-  def valDef = ("val" | "var") ~ id ~ ":" ~ typeExpr ~ optValue ^^ {
-    case _ ~ vn ~ _ ~ ty ~ value =>
+  def optTypeExpr = ((":" ~ typeExpr)?) ^^ { t => t map { case _ ~ u => u } getOrElse { new TypeUnknown() } }
+
+  def valDef = ("val" | "var") ~ id ~ optTypeExpr ~ optValue ^^ {
+    case _ ~ vn ~ ty ~ value =>
       new ValDef(new Name(vn, false), ty, value)
     //case "var" ~ valName ~ _ ~ ty ~ value => t.ValDef(t.Id(valName), ty, value) //TODO mutability
   }
@@ -42,7 +44,7 @@ object Grammar extends RegexParsers {
     }
     | "trait" ~ id ~ optExtends ~ block ^^
     {
-      case _ ~ traitName ~  traits ~ body => {
+      case _ ~ traitName ~ traits ~ body => {
         val td = new TypeDef(new Name(traitName, true), Seq(), Some(new Trait(body, traits)))
         td.attr += attributes.Move()
         td
@@ -103,26 +105,18 @@ object Grammar extends RegexParsers {
     | "if" ~ "(" ~ expr ~ ")" ~ expr ~ "else" ~ expr ^^ { case _ ~ _ ~ cond ~ _ ~ tb ~ _ ~ fb => new If(cond, tb, fb) }
     | "if" ~ "(" ~ expr ~ ")" ~ expr ^^ { case _ ~ _ ~ cond ~ _ ~ tb => new If(cond, tb, new Block(Seq())) }
     | "while" ~ "(" ~ expr ~ ")" ~ expr ^^ { case _ ~ _ ~ cond ~ _ ~ body => new While(cond, body) }
-    | basicExpr ~ "==" ~ basicExpr ^^ { case e1 ~ _ ~ e2 => new Apply(new Name("==", false), Seq(e1, e2)) }
-    | basicExpr ~ "<=" ~ basicExpr ^^ { case e1 ~ _ ~ e2 => new Apply(new Name("<=", false), Seq(e1, e2)) }
-    | basicExpr ~ "<" ~ basicExpr ^^ { case e1 ~ _ ~ e2 => new Apply(new Name("<", false), Seq(e1, e2)) }
-    | basicExpr ~ ">=" ~ basicExpr ^^ { case e1 ~ _ ~ e2 => new Apply(new Name(">=", false), Seq(e1, e2)) }
-    | basicExpr ~ ">" ~ basicExpr ^^ { case e1 ~ _ ~ e2 => new Apply(new Name(">", false), Seq(e1, e2)) }
+    | basicExpr ~ ((("==" | "<=" | "<" | ">=" | ">") ~ basicExpr)?) ^^ { case e ~ None => e case e1 ~ Some(op ~ e2) => new Apply(new Name(op, false), Seq(e1, e2)) }
     //| basicExpr ~ "!=" ~ basicExpr ^^ { case e1 ~ _ ~ e2 => Call(Id("!="), Seq(e1, e2)) }
     | basicExpr)
-  def basicExpr: Parser[Tree] = (
+  def basicExpr: Parser[Tree] =
+    (factorExpr ~ ((("+" | "-") ~ factorExpr)?)) ^^ { case e ~ None => e case ta ~ Some(op ~ e) => new Apply(new Name(op, false), Seq(ta, e)) }
 
-    (factorExpr ~ "+" ~ factorExpr) ^^ { case ta ~ _ ~ e => new Apply(new Name("+", false), Seq(ta, e)) }
-    | (factorExpr ~ "-" ~ factorExpr) ^^ { case ta ~ _ ~ e => new Apply(new Name("-", false), Seq(ta, e)) }
-    | factorExpr)
   def factorExpr: Parser[Tree] = (
-    callExpr ~ "*" ~ callExpr ^^ { case e1 ~ _ ~ e2 => new Apply(new Name("*", false), Seq(e1, e2)) }
-    | callExpr ~ "/" ~ callExpr ^^ { case e1 ~ _ ~ e2 => new Apply(new Name("/", false), Seq(e1, e2)) }
-    | callExpr ~ "%" ~ callExpr ^^ { case e1 ~ _ ~ e2 => new Apply(new Name("%", false), Seq(e1, e2)) }
-    | callExpr)
-  def callExpr: Parser[Tree] = (
-    (lvExpr ~ "(" ~ argSeq ~ ")") ^^ { case e ~ _ ~ args ~ _ => new Apply(e, args) }
-    | lvExpr)
+    callExpr ~ ((("*" | "/" | "%") ~ callExpr)?) ^^ { case e ~ None => e case e1 ~ Some(op ~ e2) => new Apply(new Name(op, false), Seq(e1, e2)) }
+  )
+  def callExpr: Parser[Tree] =
+    (lvExpr ~ (("(" ~ argSeq ~ ")")?) ^^ { case e ~ None => e case e ~ Some(_ ~ args ~ _) => new Apply(e, args) })
+
   def lvExpr: Parser[Tree] = (
     "new " ~ id ~ (("(" ~ argSeq ~ ")")?) ^^ { case _ ~ cname ~ args => new New(new Name(cname, true), args map { case _ ~ x ~ _ => x } getOrElse (Seq())) } |
     ("true"r) ^^ { _ => new Literal(true) }

@@ -112,10 +112,15 @@ object Typer {
   }
 
   def typeTreeSymbol(t: Tree): Symbol = {
-    val syms = typeTreeSymbols(t)
-    if (syms.size != 1) Utils.error("Wrong od for " + t + " : " + syms)
-    t.typeSymbol = NoType
-    syms.head
+    t match {
+      case _: TypeUnknown => NoType
+      case _ => {
+        val syms = typeTreeSymbols(t)
+        if (syms.size != 1) Utils.error("Wrong od for " + t + " : " + syms)
+        t.typeSymbol = NoType
+        syms.head
+      }
+    }
   }
 
   def convert(tree: Tree, to: Symbol): Option[Tree] = {
@@ -208,7 +213,11 @@ object Typer {
           case vd: ValDef if !vd.value.isEmpty => {
             val v = vd.value.get
             if (v.typed) {
-              convert(v, typeTreeSymbol(vd.typeTree)) match {
+              val tts = typeTreeSymbol(vd.typeTree)
+              // Try local inference
+              if (tts == NoType) {
+                vd.typeTree = new Sym(v.typeSymbol)
+              } else convert(v, typeTreeSymbol(vd.typeTree)) match {
                 case None => ()
                 case Some(convertedV) => {
                   vd.value = Some(convertedV)
@@ -315,7 +324,7 @@ object Typer {
             val args = (fArgTypes zip a.arguments) map { case (ty, arg) => convert(arg, ty) }
             if (args.contains(None)) {
               val convIdx = args.indices filter { x => args(x) == None }
-              val errS = convIdx map { i => "Can't convert " + a.arguments(i) + " to " + fArgTypes(i)} mkString "\n"
+              val errS = convIdx map { i => "Can't convert " + a.arguments(i) + " to " + fArgTypes(i) } mkString "\n"
               Error.report("Wrong argument types for " + a.function + "\n" + errS)
               a
             } else {

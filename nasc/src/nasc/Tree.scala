@@ -153,6 +153,10 @@ class Struct(var arguments: Seq[ArgDef], var composedTraits: Seq[Tree], var cont
   override def toString = "struct(" + Utils.repsep(arguments.map(_.toString)) + ") < " + (composedTraits map {_.toString} mkString ",") + content.toString
 }
 
+class TypeUnknown extends Tree {
+  def children = Seq()
+}
+
 object Builtin {
   case class Ty(name: String, ti: TypeInfo, tv: Seq[Symbol] = Seq(), attrs: Set[TreeAttribute] = Set()) {
     var symbol: Symbol = null
@@ -363,6 +367,7 @@ trait TreeTransform {
       case _: Literal => ()
       case _: Name => ()
       case _: Sym => ()
+      case _: TypeUnknown => ()
       //case x => x 
     }
     if (doTransform.isDefinedAt(tt)) doTransform(tt.asInstanceOf[Tree])
