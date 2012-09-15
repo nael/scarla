@@ -15,6 +15,19 @@ object Utils {
   }
 }
 
+object Error {
+  
+  var errors = Seq[String]()
+  
+  def report(s: String) = {
+    errors :+= s
+  }
+  
+  def has = !errors.isEmpty
+  
+  def printAll() = errors foreach { e =>  println("E: " + e) }
+}
+
 object TreeUtils {
   def flattenBlocks(s: Seq[Tree]) = {
     s flatMap {

@@ -16,6 +16,9 @@ class VirtualPhase extends Phase[Tree, Tree] {
   
   // links the symbol of a method to an eventual default implementation provided by the trait definition
   var defaultImplemetations = Map[Symbol, Symbol]()
+  
+  // map trait sym to their mixedIn traits sym for convenience
+  var traitUpcasts = Map[Symbol,Seq[Symbol]]()
 
   def buildVTable(td: TypeDef, t: Trait): Tree = {
     val ty = td.typeName.symbol
@@ -56,13 +59,30 @@ class VirtualPhase extends Phase[Tree, Tree] {
       }
     }
     
+    // Pointers to vtable of parent traits
+    val upcastPointers = t.composedTraits map { c =>
+      val destSym = c.symbol
+      val upPtrSym = new Symbol {
+        val name = destSym.name + "_vt"
+        var typeSymbol: Symbol = null
+        var isType = false
+        var definition: Def = null
+      }
+      val vd = new ArgDef(new Sym(upPtrSym), new Sym(traitVTables(destSym)))
+      upPtrSym.definition = vd
+      vd.attr += attributes.Val()
+      traitUpcasts += ty -> ((traitUpcasts get ty getOrElse (Seq())) :+ destSym)
+      upcasts += (ty, destSym) -> upPtrSym
+      vd
+    }
+    
     val vtSym = new Symbol {
       def name = ty + "_vt"
       var typeSymbol: Symbol = null
       var isType = true
       var definition: Def = null
     }
-    val st = new Struct(vtPtrs, Seq(), new Block(Seq()))
+    val st = new Struct(vtPtrs ++ upcastPointers, Seq(), new Block(Seq()))
     val vtDef = new TypeDef(new Sym(vtSym), Seq(), Some(st))
     vtDef.attr += attributes.Move()
     vtSym.definition = vtDef
@@ -123,6 +143,17 @@ class VirtualPhase extends Phase[Tree, Tree] {
       }
     }
   }
+  
+  def tableSymbol(concrete: Symbol, tr: Symbol) = {
+    val t = upcasts.getOrElse((concrete,tr), new Symbol {
+        def name = concrete.uniqueName + "_to_" + tr.uniqueName + "_vt"
+        var typeSymbol: Symbol = traitVTables(tr)
+        var isType = false
+        var definition: Def = null
+      })
+    upcasts += (concrete, tr) -> t
+    t
+  }
 
   def implementTable(td: TypeDef, s: Struct): Tree = {
     var tables = Seq[Tree]()
@@ -131,28 +162,21 @@ class VirtualPhase extends Phase[Tree, Tree] {
       val ty = td.typeName.symbol
       
       val tableType = traitVTables(traitSym)
-      val tableSym = new Symbol {
-        def name = ty.uniqueName + "_to_" + traitSym.uniqueName + "_vt"
-        var typeSymbol: Symbol = tableType
-        var isType = false
-        var definition: Def = null
-      }
+      val tableSym = tableSymbol(ty, traitSym)
 
       // Now generate stub methods
       val corres = traitTypeInfos(traitSym).members map { member =>
         (ty.typeInfo.members.find { _.name == member.name } map // TODO in typing phase add a sym1.implements(sym2) or sthing
           { concMember =>
-            concMember -> defToVtPtr(member.definition.asInstanceOf[DefDef])
+            concMember -> concMember//defToVtPtr(member.definition.asInstanceOf[DefDef])
           }) getOrElse {
-            (ty.typeInfo.derived.find { _.name == member.name } getOrElse { Utils.error("Not implemented : " + member.name + " in " + ty) }) -> null
+            val fun = ty.typeInfo.derived get member getOrElse { Utils.error("Not implemented : " + member.name + " in " + ty) }
+            fun -> (defaultImplemetations get fun getOrElse { Utils.error("No default impl and no implemented : " + fun + ". Should have failed typing earlier.\n" + defaultImplemetations + "\n" + ty.typeInfo.derived) })
           }
       }
-
+      
       if(G.verbose) println("Override table : " + corres)
-      val stubs = corres map {
-        case (fun, null) => {
-          defaultImplemetations get fun getOrElse { Utils.error("No default impl and no implemented. Should have failed typing earlier") }
-        }
+      val stubs = (corres map {
         case (fun, fptr) => {
           val stubSym = new Symbol {
             def name = fun.uniqueName + "_stub"
@@ -184,18 +208,16 @@ class VirtualPhase extends Phase[Tree, Tree] {
           thisSym.definition = thisArg
 
           val concreteThis = new cast.BitCast(new Select(new Sym(thisSym), new Name("ptr", false)), new Sym(s.thisTree.typeSymbol))
-          val stubBody = new Apply(new Select(concreteThis, new Sym(fun)), argSyms map { new Sym(_) })
+          val stubBody = new Apply(new Select(concreteThis, new Sym(fptr)), argSyms map { new Sym(_) })
 
           val dd = new DefDef(new Sym(stubSym), thisArg +: args, new Sym(Builtin.functionReturnType(fun.typeSymbol)), Some(stubBody))
           stubSym.definition = dd
           tables +:= dd
           stubSym
         }
-      }
+      }) ++ (traitUpcasts getOrElse(traitSym, Seq()) map { tableSymbol(ty, _)})
       val table = new New(new Sym(tableType), stubs map { new Sym(_) })
       val vdd = new ValDef(new Sym(tableSym), new Sym(tableType), Some(table))
-
-      upcasts += (ty, traitSym) -> tableSym
 
       tableSym.definition = vdd
       tables +:= vdd
@@ -214,7 +236,10 @@ class VirtualPhase extends Phase[Tree, Tree] {
 
   val explicitUpCasts: PartialFunction[Tree, Tree] = {
     case uc: cast.UpCast => {
-      Typer.typeTree(new New(new Sym(uc.typeSymbol), Seq(new cast.BitCast(uc.value, new Sym(Builtin.CPtr.symbol)), new Sym(upcasts(uc.value.typeSymbol, uc.typeSymbol)))))
+      val vt = if(traitUpcasts.getOrElse(uc.value.typeSymbol, Seq()).contains(uc.typeSymbol)) { // We are casting a trait to a trait
+        new Select(new Select(uc.value, new Name("vt", false)), new Sym(upcasts(uc.value.typeSymbol, uc.typeSymbol)))
+      } else new Sym(upcasts(uc.value.typeSymbol, uc.typeSymbol)) // We are casting a concrete type to a trait
+      Typer.typeTree(new New(new Sym(uc.typeSymbol), Seq(new cast.BitCast(uc.value, new Sym(Builtin.CPtr.symbol)), vt)))
     }
   }
 

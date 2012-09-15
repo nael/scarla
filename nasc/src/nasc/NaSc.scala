@@ -37,7 +37,8 @@ object NaSc {
     } else {
       G.verbose = false
       val fs = new File("./src/tests").listFiles() filter { _.getName.endsWith(".sc") } toSeq
-
+      
+      println("start")
       fs foreach { f =>
         val fw = io.Source.fromFile(f.getParent() + "/" + f.getName + ".result")
         val res = buildAndRun(f.getAbsolutePath())
@@ -51,6 +52,7 @@ object NaSc {
           println(res)
         }
       }
+      println("end")
     }
   }
 

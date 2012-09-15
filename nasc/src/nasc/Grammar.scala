@@ -7,7 +7,7 @@ object Grammar extends RegexParsers {
   val id = """[a-zA-Z_]([a-zA-Z0-9_])*"""r
   val integerLiteral = """[0-9]+"""r
   val booleanLiteral = """true|false"""
-  val operators = """\+|-|\*|==|<="""r
+  val operators = """\+|-|\*|==|<=|<|>=|>|/|%"""r
 
   override protected val whiteSpace = """( |\t|\r)+""".r
 
@@ -40,10 +40,10 @@ object Grammar extends RegexParsers {
         td
       }
     }
-    | "trait" ~ id /*~ optExtends */ ~ block ^^
+    | "trait" ~ id ~ optExtends ~ block ^^
     {
-      case _ ~ traitName ~ /*~ traits*/ body => {
-        val td = new TypeDef(new Name(traitName, true), Seq(), Some(new Trait(body)))
+      case _ ~ traitName ~  traits ~ body => {
+        val td = new TypeDef(new Name(traitName, true), Seq(), Some(new Trait(body, traits)))
         td.attr += attributes.Move()
         td
       }

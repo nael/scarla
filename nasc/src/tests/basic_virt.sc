@@ -1,6 +1,6 @@
 trait T {
   def v1(x: Int, y: Int): Int
-  def v2(): Unit = { printInt(4) }
+  def v2(): Unit = { printInt(v1(4,2)) }
 }
 
 class Add extends T {

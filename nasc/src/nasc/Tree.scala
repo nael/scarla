@@ -63,7 +63,7 @@ trait Def extends Tree
 
 class New(var typeTree: Tree, var args: Seq[Tree]) extends Tree {
   def children = typeTree +: args
-  override def toString = "new " + typeTree.toString
+  override def toString = "new " + typeTree.toString + "(" + (args map { _.toString } mkString ", ") + ")"
 }
 
 class Apply(var function: Tree, var arguments: Seq[Tree]) extends Tree {
@@ -150,7 +150,7 @@ class Struct(var arguments: Seq[ArgDef], var composedTraits: Seq[Tree], var cont
 
   override def children = super.children ++ composedTraits :+ thisTree :+ content
 
-  override def toString = "struct(" + Utils.repsep(arguments.map(_.toString)) + ") " + content.toString
+  override def toString = "struct(" + Utils.repsep(arguments.map(_.toString)) + ") < " + (composedTraits map {_.toString} mkString ",") + content.toString
 }
 
 object Builtin {
@@ -223,10 +223,10 @@ object Builtin {
   }
 }
 
-class Trait(var body: Tree) extends Tree {
+class Trait(var body: Tree, var composedTraits: Seq[Tree]) extends Tree {
   def children = Seq(body)
 
-  override def toString = "trait " + body.toString
+  override def toString = "trait < " + (composedTraits map {_.toString} mkString ",")  + body.toString
 }
 
 class Block(var children: Seq[Tree]) extends Tree {
@@ -318,6 +318,7 @@ trait TreeTransform {
         s.content = transform(s.content)
       }
       case t: Trait => {
+        if(!exprOnly) t.composedTraits = transformSeq(t.composedTraits)
         t.body = transform(t.body)
       }
       case b: Block => {

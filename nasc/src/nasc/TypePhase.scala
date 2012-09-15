@@ -2,7 +2,10 @@ package nasc
 
 trait TypeInfo {
   def members: Seq[Symbol]
-  def derived: Seq[Symbol] = Seq()
+
+  // maps abstract symbols to concrete implementation
+  def derived: Map[Symbol, Symbol] = Map()
+  def derivedFrom: Map[Symbol, Symbol] = Map()
 
   def vals = members filter { m => m.definition != null && (m.definition.isInstanceOf[ValDef]) }
 }
@@ -158,17 +161,24 @@ object Typer {
         s
       }
 
+      // TODO do we enable all conversions to find a matching member ? if so the results may be of multiple types and we have then to make multiple typing hypothesis
       case sel: Select if !sel.typed => {
         if (sel.from.typed) {
           val ty = sel.from.typeSymbol.typeInfo
-          ty.members find { _.name == sel.memberName.name } match {
+          ty.members find { _.name == sel.memberName.name } orElse { ty.derived find { _._1.name == sel.memberName.name } map { _._2 } } match {
             case Some(member) => {
               sel.memberName = transform(new Sym(member))
               sel.typeSymbol = sel.memberName.typeSymbol
-              sel
+              ty.derivedFrom get member match {
+                case None => sel
+                case Some(tty) => {
+                  sel.from = Typer.typeTree(new cast.UpCast(sel.from, new Sym(tty)))
+                  sel
+                }
+              }
             }
-            case None => sel
-          } // TODO overloads ...
+            case None => { println("Couldnt type select"); println(ty.members); println(ty.derived); sel }
+          }
         } else { println("Couldnt type " + sel + " because " + sel.from + " is not typed"); sel }
       }
 
@@ -303,12 +313,18 @@ object Typer {
             val fArgTypes = Builtin.functionArgTypes(a.function.typeSymbol)
             if (fArgTypes.size != a.arguments.size) Utils.error("Wrong argument count for " + a.function + " got " + a.arguments.size + " expected " + fArgTypes.size)
             val args = (fArgTypes zip a.arguments) map { case (ty, arg) => convert(arg, ty) }
-            if (args.contains(None)) Utils.error("Wrong arg type : " + fArgTypes + " / " + a.arguments)
+            if (args.contains(None)) {
+              val convIdx = args.indices filter { x => args(x) == None }
+              val errS = convIdx map { i => "Can't convert " + a.arguments(i) + " to " + fArgTypes(i)} mkString "\n"
+              Error.report("Wrong argument types for " + a.function + "\n" + errS)
+              a
+            } else {
 
-            a.arguments = args map { _.get }
-            a.typeSymbol = Builtin.functionReturnType(a.function.typeSymbol)
+              a.arguments = args map { _.get }
+              a.typeSymbol = Builtin.functionReturnType(a.function.typeSymbol)
 
-            a
+              a
+            }
           } else Utils.error("Not callable : " + a.function.typeSymbol)
         } else a
       }
@@ -316,47 +332,92 @@ object Typer {
     }
   }
 
-  // TODO here linearization of types & ... for now it just proceed in order and can fail (horribly)
-  // also verify concrete types do not lack any unimplemented members
-  def populateTypeInfos(tds: Seq[TypeDef]) = {
-    tds.reverse foreach { td =>
-      val ts = typeTreeSymbol(td.typeName)
-      td.value foreach {
-        case st: Struct => {
-          val m = st.content.children collect {
-            case vd: ValDef => vd.valName.symbol
-            case dd: DefDef => dd.defName.symbol
-          } toSeq
-          val composed = st.composedTraits flatMap { _.symbol.typeInfo.members } // Worst way possible
-          ts.typeInfo = new TypeInfo {
-            override val derived = composed filter { s => !(m map { _.name } contains s.name) } // again
-            def members = m
-          }
-
-          st.composedTraits foreach { tr =>
-            Glob.conversions +:= Conversion(ts, tr.symbol, { t =>
-              new cast.UpCast(t, new Sym(tr.symbol))
-            })
-          }
-        }
-        case t: Trait => {
-          val m = t.body.children collect {
-            case vd: ValDef => vd.valName.symbol
-            case dd: DefDef => dd.defName.symbol
-          }
-          ts.typeInfo = new TypeInfo {
-            def members = m.toSeq
-          }
-        }
-        case s: Sym => {
-          Utils.assert(s.symbol.typeInfo != null)
-          ts.typeInfo = s.symbol.typeInfo
-          s.symbol.derivedSymbols +:= ts
-          ts.derivedSymbols +:= s.symbol
-        }
-        case x => println("No typeinfo for " + x)
+  // Assuming types are linearized and acyclic, populate this type's TI
+  def populateTypeInfo(td: TypeDef): Unit = {
+    val ts = typeTreeSymbol(td.typeName)
+    td.value match {
+      case None => ()
+      case Some(s: Sym) => {
+        Utils.assert(s.symbol.typeInfo != null)
+        ts.typeInfo = s.symbol.typeInfo
+        s.symbol.derivedSymbols +:= ts
+        ts.derivedSymbols +:= s.symbol
       }
+      case Some(_) => {
+        val body = td.value map {
+          case st: Struct => st.content
+          case tr: Trait => tr.body
+        } get
+        val mixedIn = td.value map {
+          case st: Struct => st.composedTraits
+          case tr: Trait => tr.composedTraits
+        } map { _ map { _.symbol } } get
+
+        val m = TreeUtils.simplifyBlocks(body).children collect {
+          case vd: ValDef => vd.valName.symbol
+          case dd: DefDef => dd.defName.symbol
+        } toSeq
+
+        mixedIn foreach { t => if (t.typeInfo == null) populateTypeInfo(t.definition.asInstanceOf[TypeDef]) } //TODO berk cast
+
+        def hasBody(s: Symbol) = s.definition match { case dd: DefDef => dd.body != None case vd: ValDef => true }
+        def canImplement(m1: Symbol)(m2: Symbol) = hasBody(m2) && (m1.name == m2.name) //TODO ERK change this once defs get typed early
+
+        def findImplementation(member: Symbol) = {
+          (mixedIn map { t =>
+            t.typeInfo.members find canImplement(member) map { (t, _) }
+          } flatten).toSeq.headOption
+        }
+        val deriv = mixedIn flatMap { t => t.typeInfo.members map { m => findImplementation(m) map { m -> _ } } flatten } toMap
+        val ti = new TypeInfo {
+          val members = m
+          override val derived = deriv mapValues { _._2 }
+          override val derivedFrom = deriv mapValues { _._1 }
+        }
+
+        mixedIn foreach { mix => Glob.conversions :+= Conversion(ts, mix, { t => new cast.UpCast(t, new Sym(mix)) }) }
+
+        ts.typeInfo = ti
+      }
+    }
+  }
+
+  def populateTypeInfos(tds: Seq[TypeDef]) = {
+
+    def linearize(lin: Seq[Symbol], trs: Seq[Tree]): Seq[Symbol] = {
+      if (trs.isEmpty) lin
+      else {
+        val cps = trs.head.symbol.definition.asInstanceOf[TypeDef].value map {
+          case st: Struct => st.composedTraits
+          case tr: Trait => tr.composedTraits
+        } map { _ map { _.symbol } } get //TODO this one is hard ugly
+        val syms = trs.head.symbol +: cps
+        linearize((lin filter { s => !syms.contains(s) }) ++ syms, trs.tail)
+      }
+    }
+
+    var done = Set[Symbol]()
+    var queue = tds flatMap { td => td.value flatMap { case t: Trait => Some(td.typeName.symbol -> t) case _ => None } } toList
+
+    while (!queue.isEmpty) { //TODO this is naive topological sort, implement fast one
+      val (lowerSym, lower) = queue.find { case (s, t) => t.composedTraits forall { l => done(l.symbol) } } getOrElse { Utils.error("Cyclic trait inheritence") }
+      lower.composedTraits = linearize(Seq(), lower.composedTraits) map { new Sym(_) }
+      done += lowerSym
+      queue = queue - (lowerSym, lower)
+    }
+
+    tds foreach { td =>
+      td.value foreach {
+        case s: Struct => s.composedTraits = linearize(Seq(), s.composedTraits) map { new Sym(_) }
+        case _ => ()
+      }
+    }
+
+    tds foreach { td =>
+      val ts = typeTreeSymbol(td.typeName)
       td.typeVars.foreach { tv => tv.typeSymbol = NoType; tv.symbol.typeSymbol = NoType }
+      populateTypeInfo(td)
+
       ts.typeSymbol = NoType
     }
   }
@@ -437,9 +498,9 @@ object Typer {
     }
 
     if (!ok) {
-      println("++++++++++++++++++++++++++++++++++++++++++++++")
+      println("++++++++++++++++++++ Failed typing tree ++++++++++++++++++++++++++")
       println(t)
-      Utils.error("Typing failed")
+      Error.report("Typing failed")
     }
   }
 

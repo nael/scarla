@@ -111,7 +111,7 @@ class PrettyPrinter {
   }
 
   def printAttrs(x: Tree) = {
-    out ++= x.attrString
+    out ++= keyword(x.attrString)
   }
   def printLines(ss: Seq[Tree]): Unit = {
     ss foreach { s =>
@@ -198,9 +198,11 @@ class PrettyPrinter {
       out ++= keyword("type")
       out ++= " "
       prettyPrint(td.typeName)
-      out ++= "["
-      prettyPrintSeq(td.typeVars)
-      out ++= "]"
+      if (!td.typeVars.isEmpty) {
+        out ++= "["
+        prettyPrintSeq(td.typeVars)
+        out ++= "]"
+      }
       td.value foreach { v =>
         out ++= " = "
         prettyPrint(v)

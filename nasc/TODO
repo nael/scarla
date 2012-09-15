@@ -4,7 +4,7 @@ BUGS:
 
 
 pour bien finir les traits {
-- default impl
+- ecrire un gros torture test de linearisation/resolution des override
 - implicits pour les select
 - GROS TODO CLEAN
 - verifier tout ce qui est fait avec des valuetype
