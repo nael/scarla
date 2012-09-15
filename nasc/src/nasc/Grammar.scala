@@ -7,7 +7,7 @@ object Grammar extends RegexParsers {
   val id = """[a-zA-Z_]([a-zA-Z0-9_])*"""r
   val integerLiteral = """[0-9]+"""r
   val booleanLiteral = """true|false"""
-  val operators = """\+|-|\*|==|<=|<|>=|>|/|%"""r
+  val operators = """\+|-|\*|(==)|(<=)|<|(>=)|>|/|%"""r
 
   override protected val whiteSpace = """( |\t|\r)+""".r
 
@@ -105,6 +105,9 @@ object Grammar extends RegexParsers {
     | "while" ~ "(" ~ expr ~ ")" ~ expr ^^ { case _ ~ _ ~ cond ~ _ ~ body => new While(cond, body) }
     | basicExpr ~ "==" ~ basicExpr ^^ { case e1 ~ _ ~ e2 => new Apply(new Name("==", false), Seq(e1, e2)) }
     | basicExpr ~ "<=" ~ basicExpr ^^ { case e1 ~ _ ~ e2 => new Apply(new Name("<=", false), Seq(e1, e2)) }
+    | basicExpr ~ "<" ~ basicExpr ^^ { case e1 ~ _ ~ e2 => new Apply(new Name("<", false), Seq(e1, e2)) }
+    | basicExpr ~ ">=" ~ basicExpr ^^ { case e1 ~ _ ~ e2 => new Apply(new Name(">=", false), Seq(e1, e2)) }
+    | basicExpr ~ ">" ~ basicExpr ^^ { case e1 ~ _ ~ e2 => new Apply(new Name(">", false), Seq(e1, e2)) }
     //| basicExpr ~ "!=" ~ basicExpr ^^ { case e1 ~ _ ~ e2 => Call(Id("!="), Seq(e1, e2)) }
     | basicExpr)
   def basicExpr: Parser[Tree] = (
@@ -114,6 +117,8 @@ object Grammar extends RegexParsers {
     | factorExpr)
   def factorExpr: Parser[Tree] = (
     callExpr ~ "*" ~ callExpr ^^ { case e1 ~ _ ~ e2 => new Apply(new Name("*", false), Seq(e1, e2)) }
+    | callExpr ~ "/" ~ callExpr ^^ { case e1 ~ _ ~ e2 => new Apply(new Name("/", false), Seq(e1, e2)) }
+    | callExpr ~ "%" ~ callExpr ^^ { case e1 ~ _ ~ e2 => new Apply(new Name("%", false), Seq(e1, e2)) }
     | callExpr)
   def callExpr: Parser[Tree] = (
     (lvExpr ~ "(" ~ argSeq ~ ")") ^^ { case e ~ _ ~ args ~ _ => new Apply(e, args) }
