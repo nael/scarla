@@ -4,7 +4,7 @@ trait Phase[In, Out] extends AbstractPhase[In, Out] {
   def name: String
   def execute(input: In): Out
   def process(input: In): Out = {
-    if (G.verbose) println("Phase " + name + " ==============")
+    if (G.verbose) println("Phase " + name + " =============")
     val res = execute(input)
     G.pp.beginPhase(name)
     res match {
