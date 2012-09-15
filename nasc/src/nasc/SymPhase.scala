@@ -28,7 +28,7 @@ class SymPhase extends Phase[Tree, Tree] {
     var ctx = Context(Map(), None)
 
     val doTransform: PartialFunction[Tree, Tree] = {
-      case name: Name => {
+      case name: Name if !name.postponeResolve => {
         val syms = ctx.getAll(name.name, name.isTypeName)
         if (syms.isEmpty) name
         else new Sym(syms)

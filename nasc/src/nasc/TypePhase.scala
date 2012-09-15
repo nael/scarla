@@ -145,7 +145,14 @@ object Typer {
       case s: Sym if !s.typed => {
         s.typeSymbol = s.symbol.definition match {
           case vd: ValDef => {
-            typeTreeSymbol(vd.typeTree)
+            val tts = typeTreeSymbol(vd.typeTree)
+            if (tts == NoType) {
+              // Try local inference
+              val v = Typer.typeTree(vd.value getOrElse{Utils.error("No type & no decl")})
+              vd.value = Some(v)
+              vd.typeTree = new Sym(v.typeSymbol)
+              typeTreeSymbol(vd.typeTree)
+            } else tts
           }
           case ad: ArgDef => {
             typeTreeSymbol(ad.typeTree)
@@ -213,11 +220,7 @@ object Typer {
           case vd: ValDef if !vd.value.isEmpty => {
             val v = vd.value.get
             if (v.typed) {
-              val tts = typeTreeSymbol(vd.typeTree)
-              // Try local inference
-              if (tts == NoType) {
-                vd.typeTree = new Sym(v.typeSymbol)
-              } else convert(v, typeTreeSymbol(vd.typeTree)) match {
+              convert(v, typeTreeSymbol(vd.typeTree)) match {
                 case None => ()
                 case Some(convertedV) => {
                   vd.value = Some(convertedV)

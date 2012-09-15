@@ -91,7 +91,7 @@ object Grammar extends RegexParsers {
   def qualId = id ~ (("." ~> id)*) ^^ { case i ~ Nil => Seq(i) case i ~ is => i :: is }
   def memberAccess: Parser[Tree => Tree] = qualId ^^ { q =>
     { e: Tree =>
-      (q.foldLeft(e) { (b, a) => new Select(b, new Name(a, false)) }): Tree
+      (q.foldLeft(e) { (b, a) => new Select(b, new Name(a, false, true)) }): Tree
     }
   }
 

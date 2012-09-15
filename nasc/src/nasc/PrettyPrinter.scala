@@ -219,8 +219,10 @@ class PrettyPrinter {
       prettyPrint(i.condition)
       out ++= ") "
       prettyPrint(i.ifTrue)
-      out ++= keyword(" else ")
-      prettyPrint(i.ifFalse)
+      if (i.ifFalse != null) {
+        out ++= keyword(" else ")
+        prettyPrint(i.ifFalse)
+      }
     }
     case a: Apply => {
       prettyPrint(a.function)
@@ -288,6 +290,9 @@ class PrettyPrinter {
         out ++= "["
         printTypeExpr(a.arguments.reduce { (a1, a2) => printTypeExpr(a1); out ++= ", "; a2 })
         out ++= "]"
+      }
+      case tu:TypeUnknown => {
+        out ++= "<?Type?>"
       }
     }
   }

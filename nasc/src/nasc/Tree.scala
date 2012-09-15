@@ -254,7 +254,7 @@ class Literal(var value: Any) extends Tree {
   override def toString = "[lit:" + (if (value == null) "()" else value.toString) + "]"
 }
 
-class Name(override val name: String, val isTypeName: Boolean) extends Tree {
+class Name(override val name: String, val isTypeName: Boolean, val postponeResolve: Boolean = false) extends Tree {
   override def toString = name + "?"
 
   def children = Seq()
