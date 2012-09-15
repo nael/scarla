@@ -1,0 +1,59 @@
+@.intFmtStr = private unnamed_addr constant [4 x i8] c"%d\0A\00", align 1
+declare i32 @printf(i8* nocapture, ...) nounwind
+declare i8* @llvm.init.trampoline(i8*, i8*, i8*)
+declare noalias i8* @malloc(i64) nounwind
+ 
+; i32 arithmetic       
+define void @printInt(i32 %n) nounwind {
+    call i32 (i8*, ...)* @printf(i8* getelementptr inbounds ([4 x i8]* @.intFmtStr, i32 0, i32 0), i32 %n)
+    ret void
+}
+define i32 @i32_plus(i32 %p, i32 %q) {
+    %n = add i32 %p, %q
+    ret i32 %n
+}
+define i32 @i32_minus(i32 %p, i32 %q) {
+   %r = sub i32 %p, %q
+   ret i32 %r
+}
+define i32 @i32_times(i32 %p, i32 %q) {
+   %r = mul i32 %p, %q
+   ret i32 %r
+}
+define i32 @i32_div(i32 %p, i32 %q) {
+   %r = sdiv i32 %p, %q
+   ret i32 %r
+}
+define i32 @i32_mod(i32 %p, i32 %q) {
+   %r = srem i32 %p, %q
+   ret i32 %r
+}
+
+
+; i32 comparison
+define i1 @i32_equals(i32 %p, i32 %q) {
+   %r = icmp eq i32 %p, %q
+   ret i1 %r
+}     
+define i1 @i32_lte(i32 %p, i32 %q) {
+   %r = icmp sle i32 %p, %q
+   ret i1 %r
+}
+define i1 @i32_lt(i32 %p, i32 %q) {
+   %r = icmp slt i32 %p, %q
+   ret i1 %r
+}
+define i1 @i32_gte(i32 %p, i32 %q) {
+   %r = icmp sge i32 %p, %q
+   ret i1 %r
+}
+define i1 @i32_gt(i32 %p, i32 %q) {
+   %r = icmp sgt i32 %p, %q
+   ret i1 %r
+}
+
+define i32 @main(i32 %argc, i8** nocapture %argv) nounwind {
+  call void @__init()
+  call void @__main()
+  ret i32 0
+}
