@@ -45,7 +45,9 @@ object Typer {
 
     val typer = new TypeTransform()
     val typedTree = typer.transform(tt)
-    typedTree
+    TreeUtils.simplifyBlocks(typedTree transform {
+      case td: TypeDef if !td.typeVars.isEmpty => { new Block(Seq())}
+    })
   }
 
   def expandValCtor(s: Struct): Struct = {
@@ -76,18 +78,18 @@ object Typer {
       case a: Apply => {
         val fSyms = typeTreeSymbols(a.function)
         val typeValsO = a.arguments map typeTreeSymbols
-        Utils.assert(typeValsO forall { _.size == 1 })
+        //Utils.assert(typeValsO forall { _.size == 1 })//TODO check
         val typeVals = typeValsO map { _.first }
         var syms = Seq[Symbol]()
         fSyms.foreach { s =>
           s.definition match {
             case td: TypeDef => {
               if (td.typeVars.size == typeVals.size) {
-                val typeEnv = td.typeVars map { _.symbol } zip typeVals
+                val typeEnv = td.typeVars map { _.varName.symbol } zip typeVals
 
                 syms +:= s.derivedSymbols find { _.typeVars == typeEnv } getOrElse {
                   val newSym = new Symbol {
-                    def name = {
+                    val name = {
                       val extractedLocalValue = Utils.repsep(typeVals map { _.toString })
                       s + "[" + extractedLocalValue + ("]")
                     }
@@ -101,7 +103,7 @@ object Typer {
                   s.derivedSymbols +:= newSym
                   newSym
                 }
-              }
+              } else Error.report("Could not instanciate type " + s + " with " + typeVals)
             }
             case _ => ()
           }
@@ -116,7 +118,7 @@ object Typer {
       case _: TypeUnknown => NoType
       case _ => {
         val syms = typeTreeSymbols(t)
-        if (syms.size != 1) Utils.error("Wrong od for " + t + " : " + syms)
+        //if (syms.size != 1) Utils.error("Wrong od for " + t + " : " + syms) //TODO check ?
         t.typeSymbol = NoType
         syms.head
       }
@@ -137,6 +139,7 @@ object Typer {
   }
 
   class TypeTransform extends TreeTransform {
+
     val doTransform: PartialFunction[Tree, Tree] = {
       case s: Sym if s.symbol.typed => {
         s.typeSymbol = s.symbol.typeSymbol
@@ -148,7 +151,7 @@ object Typer {
             val tts = typeTreeSymbol(vd.typeTree)
             if (tts == NoType) {
               // Try local inference
-              val v = Typer.typeTree(vd.value getOrElse{Utils.error("No type & no decl")})
+              val v = Typer.typeTree(vd.value getOrElse { Utils.error("No type & no decl") })
               vd.value = Some(v)
               vd.typeTree = new Sym(v.typeSymbol)
               typeTreeSymbol(vd.typeTree)
@@ -171,6 +174,11 @@ object Typer {
         if (s.typed) // TODO Seems magic but maybe useful ?
           s.symbol.typeSymbol = s.typeSymbol
         s
+      }
+      
+      case iir: InlineIR if !iir.typed => {
+        iir.typeSymbol = Builtin.Unit.symbol
+        iir
       }
 
       // TODO do we enable all conversions to find a matching member ? if so the results may be of multiple types and we have then to make multiple typing hypothesis
@@ -314,13 +322,16 @@ object Typer {
       case n: New if !n.typed => {
         if (n.typeTree.typed) {
           //TODO check ctor args correctness
+          n.typeTree = new Sym(typeTreeSymbol(n.typeTree))
           n.typeSymbol = typeTreeSymbol(n.typeTree)
           n
         } else n
       }
 
       case a: Apply if !a.typed => {
-        if (a.function.typed && a.arguments.forall(_.typed)) {
+        if (!a.function.typed) a
+        else if (a.function.typeSymbol == NoType) { a.typeSymbol = NoType; a }
+        else if (a.arguments.forall(_.typed)) {
           if (Builtin.isFunction(a.function.typeSymbol)) {
             val fArgTypes = Builtin.functionArgTypes(a.function.typeSymbol)
             if (fArgTypes.size != a.arguments.size) Utils.error("Wrong argument count for " + a.function + " got " + a.arguments.size + " expected " + fArgTypes.size)
@@ -427,7 +438,17 @@ object Typer {
 
     tds foreach { td =>
       val ts = typeTreeSymbol(td.typeName)
-      td.typeVars.foreach { tv => tv.typeSymbol = NoType; tv.symbol.typeSymbol = NoType }
+      td.typeVars.foreach {
+        tv =>
+          tv.varName.typeSymbol = NoType
+          tv.varName.symbol.typeSymbol = NoType
+          if (tv.varName.symbol.typeInfo == null) {
+            tv.varName.symbol.typeInfo = new TypeInfo {
+              def members = Seq()
+              def isDerived(s: Symbol) = false
+            }
+          }
+      }
       populateTypeInfo(td)
 
       ts.typeSymbol = NoType
@@ -447,7 +468,7 @@ object Typer {
           } match {
             case None => {
               val ptrSym = new Symbol { // TODO way too ugly, time for type Ptr[T] = move T ?
-                def name = td.typeName.name + "Ptr"
+                val name = td.typeName.name + "Ptr"
                 var typeSymbol: Symbol = null
                 var isType = true
                 var definition: Def = null
@@ -506,13 +527,13 @@ object Typer {
       failed.toSet foreach { s: Sym =>
         println(s.symbol + " : " + s.typeSymbol + " != " + s.symbol.typeSymbol)
       }
-      //ok = false//TODO XXXXXX
+      ok = false//TODO XXXXXX
     }
 
     if (!ok) {
       println("++++++++++++++++++++ Failed typing tree ++++++++++++++++++++++++++")
       println(t)
-      Error.report("Typing failed")
+      //Error.report("Typing failed")
     }
   }
 

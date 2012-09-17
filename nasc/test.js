@@ -1,12 +1,22 @@
 function generateSymbolTip(s) {
 	var uniq = s.data('uniquename')
-	var sTy = s.data('type')
 	var tip = ''
 	
 	tip += '<b>' + uniq + '</b><br/>'
-	tip += '<b>Type</b> '
-	if(sTy) tip += sTy
-	else tip += "not typed"
+	
+	var sTy = s.data('type')
+	if(sTy) {
+		tip += '<b>Type</b> '
+		tip += sTy
+		tip += '<br/>'
+	}
+	
+	var sTi = s.data('typeinfo')
+	if(sTi) {
+		tip += '<b>TypeInfo</b> '
+	    tip += sTi
+	    tip += '<br/>'
+	}
 	return tip
 };
 

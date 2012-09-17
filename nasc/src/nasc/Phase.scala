@@ -14,7 +14,7 @@ trait Phase[In, Out] extends AbstractPhase[In, Out] {
     }
     
     G.pp.endPhase()
-    if (G.verbose) println(res)
+    //if (G.verbose) println(res)
     if(Error.has) {
       println("Errors !")
       Error.printAll()

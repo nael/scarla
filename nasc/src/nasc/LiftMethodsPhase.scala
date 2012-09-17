@@ -44,7 +44,7 @@ class LiftMethodsPhase extends Phase[Tree, Tree] {
       constructors get n.typeSymbol match {
         case Some(ctSym) => {
           val tmpSym = new Symbol {
-            def name = "_"
+            val name = "_"
             var typeSymbol: Symbol = null
             var isType = false
             var definition: Def = null
@@ -59,7 +59,7 @@ class LiftMethodsPhase extends Phase[Tree, Tree] {
           n.args = Seq()
           Typer.typeTree(finalBlock)
         }
-        case None => Utils.error("No constructor ?")
+        case None => Typer.typeTree(n)//Utils.error("No constructor ?")
       }
     }
   }
@@ -75,7 +75,7 @@ class LiftMethodsPhase extends Phase[Tree, Tree] {
       case t => Seq(t)
     } toSeq
     val ctorSym = new Symbol {
-      def name = CTOR_NAME
+      val name = CTOR_NAME
       var typeSymbol: Symbol = null
       var isType = false
       var definition: Def = null
@@ -90,7 +90,7 @@ class LiftMethodsPhase extends Phase[Tree, Tree] {
 
   def addArgument(thisS: Symbol)(d: DefDef): DefDef = {
     val argSym = new Symbol {
-      def name = "this"
+      val name = "this"
       var typeSymbol: Symbol = null
       var isType = false
       var definition: Def = null

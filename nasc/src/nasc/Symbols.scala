@@ -7,7 +7,7 @@ object Symbol {
 trait Symbol {
   val uniq = { Symbol.uniq += 1; Symbol.uniq }
   override def toString = name + "$" + uniq
-  val uniqueName = toString //TODO change this
+  def uniqueName = toString //TODO change this
 
   def typed = (!isType) && (typeSymbol != null)
   def name: String

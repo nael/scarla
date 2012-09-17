@@ -11,6 +11,7 @@ class PrettyPrinter {
     var data = Map[String, String]()
     data ++= Map("uniqueName" -> s.uniqueName)
     if (s.typed) data ++= Map("type" -> s.typeSymbol.toString)
+    if (s.typeInfo != null) data += "typeinfo" -> s.typeInfo.members.mkString(", ")
     withStyle("symbol", data)(s.name)
   }
   def literal = withStyle("literal") _
@@ -90,9 +91,10 @@ class PrettyPrinter {
     f.close()
     prelude()
   }
-
+  var uniq = 0
   def beginPhase(p: String) = {
-    out ++= "<h3><a href='#' onclick='$(\"#" + p + "_code\").toggle(); return false'>[+]</a> <strong>" + p + "</strong></h3><div class='code' id='" + p + "_code'>"
+    uniq += 1
+    out ++= "<h3><a href='#' onclick='$(\"#" + p + "_" + uniq + "_code\").toggle(); return false'>[+]</a> <strong>" + p + "</strong></h3><div class='code' id='" + p + "_" + uniq + "_code'>"
   }
 
   def endPhase() = out ++= "</div><br/>"
@@ -165,7 +167,8 @@ class PrettyPrinter {
       prettyPrint(d.defName)
       out ++= "("
       prettyPrintSeq(d.arguments)
-      out ++= ")"
+      out ++= "): "
+      printTypeExpr(d.returnTypeTree)
       d.body foreach { t =>
         out ++= " = "
         prettyPrint(t)
@@ -191,13 +194,16 @@ class PrettyPrinter {
         prettyPrintSeq(s.composedTraits)
         out ++= " "
       }
+      out ++= "[this:"
+      prettyPrint(s.thisTree)
+      out ++= "] "
       prettyPrint(s.content)
     }
     case td: TypeDef => {
       printAttrs(td)
       out ++= keyword("type")
       out ++= " "
-      prettyPrint(td.typeName)
+      printTypeExpr(td.typeName)
       if (!td.typeVars.isEmpty) {
         out ++= "["
         prettyPrintSeq(td.typeVars)
@@ -238,7 +244,7 @@ class PrettyPrinter {
     case n: New => {
       out ++= keyword("new")
       out ++= " "
-      prettyPrint(n.typeTree)
+      printTypeExpr(n.typeTree)
       out ++= "("
       prettyPrintSeq(n.args)
       out ++= ")"
@@ -267,6 +273,25 @@ class PrettyPrinter {
       out ++= ")"
     }
 
+    case tvd: TypeVarDef => {
+      prettyPrint(tvd.varName)
+    }
+
+    case iir: InlineIR => {
+      out ++= keyword("__IR__")
+      out ++= "("
+      /*iir.mapping foreach {
+        case (k, v) => {
+          //out ++= k + " = "
+          //prettyPrint(v)
+          out ++= ", "
+        }
+      }*/
+      out ++= "<br/>"
+      print(iir.ir)
+      out ++= "<br/>)"
+    }
+
     case _ => { if (mustPrint(x)) out ++= "[" + x.getClass() + "]" else () }
   }
 
@@ -291,7 +316,7 @@ class PrettyPrinter {
         printTypeExpr(a.arguments.reduce { (a1, a2) => printTypeExpr(a1); out ++= ", "; a2 })
         out ++= "]"
       }
-      case tu:TypeUnknown => {
+      case tu: TypeUnknown => {
         out ++= "<?Type?>"
       }
     }

@@ -62,6 +62,7 @@ class CodeGenPhase extends Phase[Tree, String] {
           case Some(uu: Sym) => typeLayout(uu.symbol)
           case _ => Utils.error("No layout for type " + s)
         }
+        case _: TypeVarDef => "[TypeVar??]"
         case _ => Utils.error("Trying to layout type defined at : " + s.definition)
       }
     layout + (if (s.definition.hasAttr[attributes.Move]) "*" else "")
@@ -114,6 +115,7 @@ class CodeGenPhase extends Phase[Tree, String] {
       }
 
       case td: TypeDef => {
+        td.typeName.symbol.storage = SymbolStorage.Raw(typeName(td.typeName.symbol))
         td.value match {
           case Some(s: Struct) => {
             td.typeName.symbol.typeInfo.vals.zipWithIndex foreach {
@@ -218,6 +220,18 @@ class CodeGenPhase extends Phase[Tree, String] {
           res
         }
 
+      }
+      
+      case ir: InlineIR => {
+        var code = ir.ir
+        
+        val vs = ir.mapping map { case(k,v) => 
+          v -> (if(k(1) == 'p') genPointer(cg, v) else genTree(cg, v))
+        } toMap
+        
+        ir.mapping.foreach { case (k,v) => code = code.replace(k, vs(v)) }
+        cg.writer.print(code)
+        "undef"
       }
 
       case n: New => {

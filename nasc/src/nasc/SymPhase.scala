@@ -30,7 +30,7 @@ class SymPhase extends Phase[Tree, Tree] {
     val doTransform: PartialFunction[Tree, Tree] = {
       case name: Name if !name.postponeResolve => {
         val syms = ctx.getAll(name.name, name.isTypeName)
-        if (syms.isEmpty) name
+        if (syms.isEmpty) { Utils.error("Unknown name " + name + " \n\n " + ctx.toString); name }
         else new Sym(syms)
       }
     }
@@ -53,7 +53,7 @@ class SymPhase extends Phase[Tree, Tree] {
       ctx = t match {
         case vd: ValDef => {
           add(vd.valName, valName => new Symbol {
-            def name = valName
+            val name = valName
             var typeSymbol: Symbol = null
             var isType = false
             var definition: Def = vd
@@ -61,7 +61,7 @@ class SymPhase extends Phase[Tree, Tree] {
         }
         case td: TypeDef => {
           add(td.typeName, typeName => new Symbol {
-            def name = typeName
+            val name = typeName
             var typeSymbol: Symbol = null
             var isType = true
             var definition: Def = td
@@ -69,7 +69,7 @@ class SymPhase extends Phase[Tree, Tree] {
         }
         case ad: ArgDef => {
           add(ad.argName, argName => new Symbol {
-            def name = argName
+            val name = argName
             var typeSymbol: Symbol = null
             var isType = false
             var definition: Def = ad
@@ -77,7 +77,7 @@ class SymPhase extends Phase[Tree, Tree] {
         }
         case dd: DefDef => {
           add(dd.defName, defName => new Symbol {
-            def name = defName
+            val name = defName
             var typeSymbol: Symbol = null
             var isType = false
             var definition: Def = dd
@@ -85,10 +85,18 @@ class SymPhase extends Phase[Tree, Tree] {
         }
         case od: ObjectDef => {
           add(od.objName, objName => new Symbol {
-            def name = objName
+            val name = objName
             var typeSymbol: Symbol = null
             var isType = false
             var definition: Def = od
+          })
+        }
+        case tvd: TypeVarDef => {
+          add(tvd.varName, varName => new Symbol {
+            val name = varName
+            var typeSymbol: Symbol = null
+            var isType = true
+            var definition: Def = tvd
           })
         }
         case st: Struct => {

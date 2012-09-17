@@ -77,7 +77,7 @@ class VirtualPhase extends Phase[Tree, Tree] {
     }
     
     val vtSym = new Symbol {
-      def name = ty + "_vt"
+      val name = ty + "_vt"
       var typeSymbol: Symbol = null
       var isType = true
       var definition: Def = null
@@ -89,7 +89,7 @@ class VirtualPhase extends Phase[Tree, Tree] {
 
     td.typeSymbol = null
     val objPtrSym = new Symbol {
-      def name = "ptr"
+      val name = "ptr"
       var typeSymbol: Symbol = null
       var isType = false
       var definition: Def = null
@@ -99,7 +99,7 @@ class VirtualPhase extends Phase[Tree, Tree] {
     objPtrSym.definition = objPtrDef
 
     val vtPtrSym = new Symbol {
-      def name = "vt"
+      val name = "vt"
       var typeSymbol: Symbol = null
       var isType = false
       var definition: Def = null
@@ -146,7 +146,7 @@ class VirtualPhase extends Phase[Tree, Tree] {
   
   def tableSymbol(concrete: Symbol, tr: Symbol) = {
     val t = upcasts.getOrElse((concrete,tr), new Symbol {
-        def name = concrete.uniqueName + "_to_" + tr.uniqueName + "_vt"
+        val name = concrete.uniqueName + "_to_" + tr.uniqueName + "_vt"
         var typeSymbol: Symbol = traitVTables(tr)
         var isType = false
         var definition: Def = null
@@ -179,7 +179,7 @@ class VirtualPhase extends Phase[Tree, Tree] {
       val stubs = (corres map {
         case (fun, fptr) => {
           val stubSym = new Symbol {
-            def name = fun.uniqueName + "_stub"
+            val name = fun.uniqueName + "_stub"
             var typeSymbol: Symbol = null
             var isType = false
             var definition: Def = null
@@ -199,7 +199,7 @@ class VirtualPhase extends Phase[Tree, Tree] {
           }
           val argSyms = args map { _.argName.symbol }
           val thisSym = new Symbol {
-            def name = "this"
+            val name = "this"
             var typeSymbol: Symbol = null
             var isType = false
             var definition: Def = null

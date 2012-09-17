@@ -18,7 +18,6 @@ pour bien finir les traits {
 #- Function overloading
 - Regarder nocapture/nounwind/noalias
 #- getters/setters automatiques
-#- un bon pretty printing
 #- bien gerer la mutabilité [const dans le langage ? pas pour l'instant]
 - nested aggregates (une fois qu'on a symbol.owner & etc)
 - Gestion d'erreur parsing
